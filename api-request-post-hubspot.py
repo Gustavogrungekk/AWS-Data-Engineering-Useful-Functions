@@ -44,6 +44,5 @@ access_token = 'hub-token'
 hubspot_endpoint = 'https://api.hubapi.com/seu/endpoint/api'
 dados_para_postar = {'chave1': 'valor1', 'chave2': 'valor2'}
 
-
 # Chamando a funcao
 verificar_e_postar_no_hubspot(access_token, hubspot_endpoint, dados_para_postar)
