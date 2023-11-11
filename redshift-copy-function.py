@@ -74,9 +74,10 @@ aws_secret_access_key = 'your-aws-secret-access-key'
 redshift_host = 'your-redshift-host'
 redshift_port = 'your-redshift-port'
 redshift_db = 'your-redshift-database'
+redshift_iam_role = 'your-redshift-iam-role'
 redshift_user = 'your-redshift-user'
 redshift_password = 'your-redshift-password'
-redshift_iam_role = 'your-redshift-iam-role'
+
 
 copy_parquet_to_redshift(s3_bucket, s3_key,
                         redshift_table,
