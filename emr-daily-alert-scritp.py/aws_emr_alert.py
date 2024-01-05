@@ -17,13 +17,23 @@ from email.mime.base import MIMEBase
 from io import BytesIO
 from tabulate import tabulate
 
+#===============================================================================================================================================#
+# Change your variables here:
+
 # Recipients
 email_list = ['youremail@company.com']
-titulo_email = f"PIPELINE JOBS EMR DAILY ALERT - {datetime.today().strftime(format='%d-%m-%Y')}"
+email_title = f"PIPELINE JOBS EMR DAILY ALERT - {datetime.today().strftime(format='%d-%m-%Y')}" # Title for the email
 
+# The bucket where Amazon EMR outputs its logs.
+bucket_logs = 'bucket-emr-output' # The bucket where Amazon EMR outputs its logs.
+
+# The bucket where yout .csv containing your organization email is located.
+bucket_cred = 'your-s3-bucket'
+key = 'credentials/credentials_email.csv' # Path to the .csv file
+#===============================================================================================================================================#
 
 today = datetime.today()
-# today = datetime(2024,1,1) for testing 
+# today = datetime(2024,1,1) # for testing any given date 
 
 before = datetime((today.date() + timedelta(days=1)).year,
                    (today.date() + timedelta(days=1)).month,
@@ -42,14 +52,14 @@ info = emr.list_clusters(CreatedAfter=after,
 frame = []
 running_clusters = []
 for f in info['Clusters']:
-    data_criacao = f['Status']['Timeline']['CreationDateTime'].date()
+    creation_date = f['Status']['Timeline']['CreationDateTime'].date()
     state =  f['Status']['State']
-    if data_criacao == today.date():
+    if creation_date == today.date():
         frame.append({'CLUSTER_ID': f['Id'],
                     'CLUSTER_NAME': f['Name'].upper(),
                     'CLUSTER_STATE': state,
                     'CLUSTER_MESSAGE': f['Status']['StateChangeReason']['Message'].upper(),
-                    'CREATION_DATE': data_criacao})
+                    'CREATION_DATE': creation_date})
     
         if state.lower() in ['running', 'waiting']:
             running_clusters.append(f['Id'])
@@ -62,8 +72,6 @@ frame = frame[order]
 
 # Accessing steps and listing clusters using boto3.
 ids = list(frame['CLUSTER_ID'])
-
-bucket = 'datalake-emr-ouptput' # The bucket where Amazon EMR outputs its logs.
 other_info = []
 for spath in ids:
     if spath in running_clusters:
@@ -78,14 +86,14 @@ for spath in ids:
         try:
             # Provide the prefix that points to EMR steps in your s3 bucket to list all the running jobs and outputs.
             local = f'logsemr2/{spath}/steps/' 
-            obj = s3.list_objects_v2(Bucket=bucket, Prefix=local)['Contents']
+            obj = s3.list_objects_v2(Bucket=bucket_logs, Prefix=local)['Contents']
             for ob in obj:
                 if ob['Key'].endswith('stderr.gz'):
                     file_local = ob['Key']
                     cluster_id = file_local.split('/')[1]
 
                     s3_log = boto3.resource("s3")
-                    obj_log = s3_log.Object(bucket, key=file_local).get()['Body'].read()
+                    obj_log = s3_log.Object(bucket_logs, key=file_local).get()['Body'].read()
                     gzipfile = BytesIO(obj_log)
                     gzipfile = gzip.GzipFile(fileobj=gzipfile)
                     content = gzipfile.read()
@@ -123,9 +131,7 @@ else:
 # Sending the email
 
 # Accessing the credential file
-bucket_= 'your-s3-bucket'
-key = 'credentials/credentials_email.csv'
-obj = s3.get_object(Bucket=bucket, Key=key)
+obj = s3.get_object(Bucket=bucket_cred, Key=key)
 url = obj['Body']
 
 credential = (pd.read_csv(io.BytesIO(url.read()), sep=';'))
@@ -187,5 +193,5 @@ smtpObj.starttls()
 msgTo = email
 toPass = password
 smtpObj.login(msgTo, toPass)
-smtpObj.sendmail(msgTo,msgFrom,f'Subject: {titulo_email}\n{msg}')
+smtpObj.sendmail(msgTo,msgFrom,f'Subject: {email_title}\n{msg}')
 smtpObj.quit()
