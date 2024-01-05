@@ -1,5 +1,5 @@
 #===============================================================================================================================================#
-# Description: Load and transform your PySpark dataframe stored in the efficient .parquet format, into AWS Redshift.
+# Description: Load your PySpark dataframe stored in the efficient .parquet format, into AWS Redshift.
 # Author: Gustavo Barreto
 # Date: 10/08/2023
 # Languages: Python3, boto3
