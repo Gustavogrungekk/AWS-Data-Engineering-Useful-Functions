@@ -18,7 +18,7 @@ from io import BytesIO
 from tabulate import tabulate
 
 #===============================================================================================================================================#
-# Change your variables here:
+# Change the variables here:
 
 # Recipients
 email_list = ['youremail@company.com']
