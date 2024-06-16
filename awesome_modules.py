@@ -7,12 +7,25 @@ from pyspark.sql.utils import AnalysisException
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
     
-    '''
-    Docstring
+    """
+    Sync files from an S3 bucket to a local directory.
+
     Args:
-    S3_uri: S3 URI to sync from (e.g., 's3://my-bucket/my-prefix/')
-    Output_location: Local directory to sync to
-    '''
+    S3_uri (str): S3 URI to sync from (e.g., 's3://my-bucket/my-prefix/').
+    Output_location (str): Local directory to sync to.
+
+    Returns:
+    str: Success message indicating all files have been downloaded.
+
+    Raises:
+    ValueError: If the S3 URI is invalid.
+    Exception: If listing objects from the S3 bucket fails.
+    
+    Example:
+    >>> result = sync_s3_bucket('s3://my-bucket/my-prefix/', '/local/output/path')
+    >>> print(result)
+    'All files downloaded successfully to /local/output/path.'
+    """
     
     if not S3_uri.startswith('s3://'):
         raise ValueError(f'S3 path is either invalid or wrong s3 path: {S3_uri}')
