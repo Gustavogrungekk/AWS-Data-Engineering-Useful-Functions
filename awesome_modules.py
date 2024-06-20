@@ -333,3 +333,64 @@ def s3_contains(s3_path: str) -> bool:
     except Exception as e:
         print(f'Failed to list objects: {str(e)}')
         return False
+    
+def try_date(date_str: str):
+    """
+    Converts various date string formats to 'YYYY-MM-DD' format in Python datetime.date object.
+
+    Args:
+    - date_str (str): Date string in various formats.
+
+    Returns:
+    - datetime.date: Python datetime.date object.
+    """
+
+    # List of possible date formats to try parsing
+    date_formats = [
+        '%Y%m%d',                   # YYYYMMDD
+        '%Y-%m-%d %H:%M:%S.%f %Z',  # YYYY-MM-DD HH:MM:SS.microseconds timezone
+        '%Y-%m-%d',                 # YYYY-MM-DD
+        '%-m/%-d/%Y',               # M/D/YYYY (allowing single digit month and day)
+        '%d %B, %Y',                # D Month, YYYY (e.g., 1 January, 2024)
+        '%Y-%m-%d %H:%M:%S',        # YYYY-MM-DD HH:MM:SS
+        '%Y-%m-%d %H:%M:%S.%f',     # YYYY-MM-DD HH:MM:SS.microseconds
+        '%Y-%m-%d %H:%M:%S.%f%z',   # YYYY-MM-DD HH:MM:SS.microseconds+HHMM
+        '%Y-%m-%d %H:%M:%SZ',       # YYYY-MM-DD HH:MM:SSZ (UTC)
+        '%Y-%d-%m',                 # YYYY-DD-MM
+        '%d-%m-%Y',                 # DD-MM-YYYY
+        '%s',                       # POSIX timestamp (seconds since 1970-01-01 00:00:00 UTC)
+        '%Q',                       # POSIX timestamp with milliseconds (milliseconds since 1970-01-01 00:00:00 UTC)
+        '%Y/%m/%d',                 # YYYY/MM/DD
+        '%d-%b-%Y',                 # DD-Mon-YYYY (e.g., 01-Jan-2024)
+        '%d-%B-%Y',                 # DD-Month-YYYY (e.g., 01-January-2024)
+        '%b %d, %Y',                # Mon DD, YYYY (e.g., Jan 01, 2024)
+        '%B %d, %Y',                # Month DD, YYYY (e.g., January 01, 2024)
+        '%d/%m/%Y',                 # DD/MM/YYYY
+        '%d-%m-%y',                 # DD-MM-YY (two-digit year)
+        '%m/%d/%Y',                 # MM/DD/YYYY
+        '%m-%d-%y',                 # MM-DD-YY (two-digit year)
+        '%d/%m/%y',                 # DD/MM/YY (two-digit year)
+        '%m-%d-%Y',                 # MM-DD-YYYY
+        '%y-%m-%d',                 # YY-MM-DD (two-digit year)
+        '%y/%m/%d',                 # YY/MM/DD (two-digit year)
+    ]
+    
+    # Attempting to parse the date using each format
+    for fmt in date_formats:
+        try:
+            # Strips any leading or trailing whitespace characters
+            cleaned_date_str = date_str.strip()
+            
+            # Handles Unix timestamps as strings (case of '%s' and '%Q')
+            if fmt in ['%s', '%Q']:
+                match = re.match(r'^\d{10,13}$', cleaned_date_str)
+                if not match:
+                    continue
+            
+            return datetime.strptime(cleaned_date_str, fmt).date()
+        
+        except ValueError:
+            continue
+    
+    # If none of the formats match, return None or raise an Exception as needed
+    raise ValueError(f"Unable to parse date string: {date_str}")
