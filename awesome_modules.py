@@ -1,3 +1,13 @@
+#===================================================================================================================#
+# Author: Gustavo Barreto
+# Description: This Python library contains modules I've developed and use frequently. 
+# Feel free to incorporate them into your own projects!
+# Language: Python 3.9
+# Date: 2024-06-19
+# Version: 1.0
+#===================================================================================================================#
+
+
 import boto3
 import os
 import os
@@ -9,6 +19,8 @@ from pyathena.pandas.cursor import PandasCursor
 import pandas as pd
 from datetime import datetime, timedelta
 import re
+import unicodedata
+
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
     
@@ -396,3 +408,12 @@ def try_date(date_str: str):
     
     # If none of the formats match, return None or raise an Exception as needed
     raise ValueError(f"Unable to parse date string: {date_str}")
+
+def clear_string(text):
+    """ 
+    Clears accentuations, special characters, emojis, etc. from the input text.
+    """
+    normalized_text = unicodedata.normalize('NFD', text)  # Normalize to decomposed form
+    ascii_text = ''.join([c for c in normalized_text if unicodedata.category(c) != 'Mn'])  # Keep only non-combining characters
+    clean_text = ''.join([c for c in ascii_text if unicodedata.category(c)[0] != 'C'])  # Remove control characters
+    return clean_text
