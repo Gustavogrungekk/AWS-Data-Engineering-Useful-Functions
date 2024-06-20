@@ -409,15 +409,40 @@ def try_date(date_str: str):
     # If none of the formats match, return None or raise an Exception as needed
     raise ValueError(f"Unable to parse date string: {date_str}")
 
-def clear_string(text:str):
-    """ 
-    Clears accentuations, special characters, emojis, etc. from the input text.
+def clear_string(text: str, remove: set = None) -> str:
     """
-    normalized_text = unicodedata.normalize('NFD', text) # Normalize the string
-    ascii_text = ''.join([c for c in normalized_text if unicodedata.category(c) != 'Mn']) # Removing Combining Marks:
-    clean_text = ''.join([c for c in ascii_text if unicodedata.category(c)[0] != 'C']) # Non-printable characters
-    return clean_text
+    Clears accentuations, special characters, emojis, etc. from the input text and removes specified characters.
 
+    Args:
+    - text (str): Text that will be cleaned.
+    - remove (set, optional): A set containing the elements to be found and removed from the text. Defaults to an empty set.
+
+    Returns:
+    - str: The cleaned text.
+
+    Usage Example:
+    >>> remove_set = {'#^$%@#^|][]'}
+    >>> clear_string('AAç#^$úcar Ca%@#^|][]nção', remove_set)
+    'Acucar Cancao'
+    """
+    if text:
+        # Normalize the string to separate base characters from their combining marks
+        normalized_text = unicodedata.normalize('NFD', text)
+        # Removing Combining Marks:
+        ascii_text = ''.join([c for c in normalized_text if unicodedata.category(c) != 'Mn'])
+        # Removing non-printable characters
+        clean_text = ''.join([c for c in ascii_text if unicodedata.category(c)[0] != 'C'])
+        
+        # Set default for remove parameter if not provided
+        if remove is None:
+            remove = set()
+        
+        # Removing specified characters
+        clean_text = ''.join([c for c in clean_text if c not in remove])
+        
+        return clean_text
+
+    return text
 
 def run_athena_query_and_save_to_s3(query:str, s3_location:str, filename:str, OutputLocation:str):
     """
