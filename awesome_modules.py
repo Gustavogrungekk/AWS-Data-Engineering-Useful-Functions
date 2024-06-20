@@ -310,3 +310,26 @@ def get_latest_partition(database_name, table_name, aws_region='us-west-2'):
 
     except Exception as e:
         return f"Failed to get latest partition: {str(e)}"
+    
+
+def s3_contains(s3_path: str) -> bool:
+
+    if not s3_path.startswith('s3://'):
+        raise ValueError(f'S3 path is invalid: {s3_path}')
+
+    # Extract bucket and prefix from the S3 path
+    parts = s3_path[5:].split('/', 1)
+    bucket = parts[0]
+    prefix = parts[1] if len(parts) > 1 else ''
+    
+    s3 = boto3.client('s3')
+
+    try:
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        if 'Contents' in response:
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f'Failed to list objects: {str(e)}')
+        return False
