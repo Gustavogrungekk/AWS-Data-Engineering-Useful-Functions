@@ -7,19 +7,19 @@
 # Version: 1.0
 #===================================================================================================================#
 
-
-import boto3
-import os
-import os
-import boto3
+# Imports
 from pyspark.sql import SparkSession
 from pyspark.sql.utils import AnalysisException
 from pyathena import connect
 from pyathena.pandas.cursor import PandasCursor
+import boto3
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 import re
 import unicodedata
+from io import BytesIO
+from botocore.exceptions import ClientError
 
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
@@ -409,11 +409,75 @@ def try_date(date_str: str):
     # If none of the formats match, return None or raise an Exception as needed
     raise ValueError(f"Unable to parse date string: {date_str}")
 
-def clear_string(text):
+def clear_string(text:str):
     """ 
     Clears accentuations, special characters, emojis, etc. from the input text.
     """
-    normalized_text = unicodedata.normalize('NFD', text)  # Normalize to decomposed form
-    ascii_text = ''.join([c for c in normalized_text if unicodedata.category(c) != 'Mn'])  # Keep only non-combining characters
-    clean_text = ''.join([c for c in ascii_text if unicodedata.category(c)[0] != 'C'])  # Remove control characters
+    normalized_text = unicodedata.normalize('NFD', text) # Normalize the string
+    ascii_text = ''.join([c for c in normalized_text if unicodedata.category(c) != 'Mn']) # Removing Combining Marks:
+    clean_text = ''.join([c for c in ascii_text if unicodedata.category(c)[0] != 'C']) # Non-printable characters
     return clean_text
+
+
+def run_athena_query_and_save_to_s3(query:str, s3_location:str, filename:str, OutputLocation:str):
+    """
+    Runs a query on Amazon Athena, monitors its execution status, and saves the result as an Excel file in S3.
+    
+    Parameters:
+    - query: The SQL query to execute on Athena.
+    - s3_location: The S3 bucket where the Excel file will be saved.
+    - filename: The name of the Excel file to be saved.
+    """
+    try:
+        # Initialize Athena client
+        athena_client = boto3.client('athena')
+
+        # Start query execution
+        response = athena_client.start_query_execution(
+            QueryString=query,
+            ResultConfiguration={'OutputLocation': OutputLocation}
+        )
+        
+        # Get query execution ID
+        query_execution_id = response['QueryExecutionId']
+        print(f"Query execution ID: {query_execution_id}")
+        
+        # Monitor query execution status
+        while True:
+            # Checking the query status
+            query_status = athena_client.get_query_execution(QueryExecutionId=query_execution_id)['QueryExecution']['Status']['State']
+            
+            if query_status == 'SUCCEEDED':
+                break
+            elif query_status in ['FAILED', 'CANCELLED']:
+                print(f"Query execution failed or was cancelled. Status: {query_status}")
+                return
+            else:
+                print(f"Query status: {query_status}. Waiting...")
+                time.sleep(10)  # Wait 10 seconds before checking again
+        
+        # Get query results
+        results_response = athena_client.get_query_results(QueryExecutionId=query_execution_id)
+        
+        # Process results into a DataFrame (assuming first row is header)
+        header = [col['Label'] for col in results_response['ResultSet']['ResultSetMetadata']['ColumnInfo']]
+        rows = [[val.get('VarCharValue', '') for val in row['Data']] for row in results_response['ResultSet']['Rows'][1:]]
+        df = pd.DataFrame(rows, columns=header)
+        
+        # Save DataFrame to Excel in memory
+        excel_buffer = BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        
+        # Upload Excel file to S3
+        s3 = boto3.client('s3')
+        s3_key = f"{filename}.xlsx"
+        s3.put_object(Body=excel_buffer, Bucket=s3_location, Key=s3_key)
+        
+        print(f"Excel file saved to S3://{s3_location}/{s3_key}")
+    
+    except ClientError as e:
+        print(f"Error running Athena query: {e}")
+
+    except Exception as e:
+        print(f"Unexpected error: {e}")
