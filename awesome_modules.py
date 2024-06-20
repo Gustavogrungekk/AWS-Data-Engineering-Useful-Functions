@@ -4,6 +4,9 @@ import os
 import boto3
 from pyspark.sql import SparkSession
 from pyspark.sql.utils import AnalysisException
+from pyathena import connect
+from pyathena.pandas.cursor import PandasCursor
+import pandas as pd
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
     
@@ -252,3 +255,58 @@ def cdp_to_s3(username: str,
 
     finally:
         spark.stop()
+
+
+def get_latest_partition(database_name, table_name, aws_region='us-west-2'):
+    """
+    Get the latest partition from an Athena table with multiple partition columns.
+
+    Args:
+    database_name (str): The name of the Athena database.
+    table_name (str): The name of the Athena table.
+    aws_region (str): AWS region where the Athena and Glue services are hosted. Default is 'us-west-2'.
+
+    Returns:
+    dict: The latest partition values as a dictionary.
+    """
+
+    # Create a Glue client
+    glue_client = boto3.client('glue', region_name=aws_region)
+
+    try:
+        # Get table metadata
+        response = glue_client.get_table(DatabaseName=database_name, Name=table_name)
+        partitions = response['Table']['PartitionKeys']
+
+        if not partitions:
+            raise ValueError(f"No partition keys found for table '{table_name}' in database '{database_name}'.")
+
+        # Extract partition column names
+        partition_columns = [partition['Name'] for partition in partitions]
+
+        # Connect to Athena
+        conn = connect(region_name=aws_region, cursor_class=PandasCursor)
+
+        # Build the query to get the latest partition
+        select_columns = ', '.join(partition_columns)
+        group_by_columns = ', '.join(partition_columns)
+        max_column = f"MAX({partition_columns[-1]}) AS latest_partition"  # Assuming the last partition column is the timestamp or date column
+
+        query = f"""
+        SELECT {select_columns}, {max_column}
+        FROM {database_name}.{table_name}
+        GROUP BY {group_by_columns}
+        ORDER BY latest_partition DESC
+        LIMIT 1
+        """
+
+        # Execute the query
+        df = pd.read_sql(query, conn)
+
+        # Convert result to dictionary
+        latest_partition = df.to_dict(orient='records')[0]
+
+        return latest_partition
+
+    except Exception as e:
+        return f"Failed to get latest partition: {str(e)}"
