@@ -348,7 +348,7 @@ def s3_contains(s3_path: str) -> bool:
         print(f'Failed to list objects: {str(e)}')
         return False
     
-def try_date(date_str: str):
+def try_date(date_str: str, format = '%Y-%m-%d'):
     """
     Converts various date string formats to 'YYYY-MM-DD' format in Python datetime.date object.
 
@@ -401,7 +401,7 @@ def try_date(date_str: str):
                 if not match:
                     continue
             
-            return datetime.strptime(cleaned_date_str, fmt).date()
+            return datetime.strptime(cleaned_date_str, fmt).date().strftime(format=format)
         
         except ValueError:
             continue
@@ -506,3 +506,28 @@ def run_athena_query_and_save_to_s3(query:str, s3_location:str, filename:str, Ou
 
     except Exception as e:
         print(f"Unexpected error: {e}")
+
+def upload_file_to_s3(file_location: str, bucket: str, object_path: str = None):
+    '''
+    Uploads a local file to S3
+
+    Args:
+    - file_location: Path to the local file
+    - bucket: Name of the S3 bucket
+    - object_path: Path and name of the file in S3 (optional)
+
+    Returns:
+    - str: Success or error message
+    '''
+    s3 = boto3.client('s3')
+    
+    if object_path is None:
+        # If object_path is not specified, use the local file name
+        object_path = file_location.split('/')[-1]
+    
+    try:
+        s3.upload_file(file_location, bucket, object_path)
+        return f'File {file_location} sent successfully to {bucket}/{object_path}'
+    except Exception as e:
+        return f'Error uploading file: {str(e)}'
+
