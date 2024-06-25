@@ -47,18 +47,3 @@ def sync_s3_bucket(S3_uri: str, Output_location: str):
             raise Exception(f'Failed to list objects, empty directory or invalid prefix: {S3_uri}.')
     
     return f'All files downloaded successfully to {Output_location}.'
-
-# add schema:
-
-# # Define schema
-# schema = StructType([
-#     StructField("error", StructType([
-#         StructField("error_details", StructType([
-#             StructField("string", StringType(), True),
-#             StructField("struct", StructType([
-#                 StructField("code", IntegerType(), True),
-#                 StructField("message", StringType(), True)
-#             ]), True)
-#         ]), True)
-#     ]), True)
-# ])
