@@ -20,6 +20,9 @@ import re
 import unicodedata
 from io import BytesIO
 from botocore.exceptions import ClientError
+import repartipy
+import math
+import numpy as np
 
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
@@ -531,3 +534,31 @@ def upload_file_to_s3(file_location: str, bucket: str, object_path: str = None):
     except Exception as e:
         return f'Error uploading file: {str(e)}'
 
+def estimate_size(spark, df)-> str: 
+    """
+    Estimates the size of a DataFrame in a human-readable format using SI units.
+
+    Parameters:
+    spark (SparkSession): The Spark session.
+    df (DataFrame): The DataFrame to estimate the size of.
+
+    Returns:
+    str: The estimated size of the DataFrame in a human-readable format.
+    """
+    with repartipy.SizeEstimator(spark=spark, df=df) as se:
+        df_size_in_bytes = se.estimate()
+
+    # Ensure the size is an integer or float
+    if not isinstance(df_size_in_bytes, (int, float)):
+        raise TypeError("df_size_in_bytes must be an integer or float.")
+
+    if df_size_in_bytes == 0:
+        return "0B"
+
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(df_size_in_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = np.round(df_size_in_bytes / p, 2)
+    return f"{s} {size_name[i]}"
+    
+estimate_size(spark, df)
