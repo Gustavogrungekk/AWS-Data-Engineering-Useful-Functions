@@ -719,3 +719,31 @@ def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'
     else:
         last_modified = None
     return last_modified.strftime('%Y-%m-%d %H:%M:%S') 
+
+def get_table(spark, database_name:str, table_name:str, view=None, dataframe=None, region:str = 'us-east-1'):
+    '''
+    Description:
+    This function will create a view or a spark dataframe based on aws glue create_dynamic_frame.from_catalog function
+
+    Args:
+    spark: spark session
+    database_name: name of the database where the table will be created
+    table_name: name of the table to be created
+    view: boolean if the table will be created as a view
+    dataframe: boolean if the table will be created as a spark dataframe
+
+    returns:
+    A view or a spark dataframe
+    How to use:
+    get_dataframe(spark, database_name, table_name)
+    '''
+    glueContext = GlueContext(spark)
+    if view:
+        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=view).toDF().createOrReplaceTempView(table_name)
+        print(f'View {table_name} created successfully')
+        return df
+    elif dataframe:
+        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=dataframe).toDF()
+        print(f'Dataframe {table_name} created successfully')
+        return df
+    raise ValueError("Must specify either view or dataframe")
