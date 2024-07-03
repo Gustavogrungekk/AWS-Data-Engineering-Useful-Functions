@@ -609,3 +609,113 @@ def check_success(s3_path:str=None):
         return True
     except Exception as e:
         return False
+    
+def create_or_update_table(spark, database_name:str, table_name:str, s3_path:str, file_format:str, region:str = 'us-east-1'):
+    '''
+    Description:
+    This function will mimic the behavior of aws glue crawler replication to update a table in aws glue catalog or create it if it doesn't exist
+    If the table already exists, it will update it else it will create it in the aws glue catalog
+
+    Args:
+    spark: spark session
+    database_name: name of the database where the table will be created
+    table_name: name of the table to be created
+    s3_path: s3 location where the table will be created
+    file_format: parquet or csv
+    region: region where the table will be created by default is us-east-1
+
+    returns:
+    A string with the success message
+    How to use:
+    spark = spark_session()
+    create_or_update_table(spark, database_name, table_name, s3_path, file_format)
+    '''
+
+    glue = boto3.client('glue', region_name=region)
+
+    if file_format == 'parquet':    
+        df = spark.read.parquet(s3_path)
+    elif file_format == 'csv':
+        df = spark.read.csv(s3_path, header=True, inferSchema=True)
+    else:
+        raise ValueError("Unsupported file format")
+
+    # Infer schema
+    schema = df.schema
+
+    # Try to create or update the Glue table
+    try:
+        glue.get_table(DatabaseName=database_name, Name=table_name)
+        table_exists = True
+    except glue.exceptions.EntityNotFoundException:
+        table_exists = False
+
+    # Convert schema to Glue-compatible format
+    glue_columns = []
+    for field in schema.fields:
+        column_type = field.dataType.simpleString()
+        if column_type == 'string':
+            column_type = 'STRING'
+        elif column_type == 'integer':
+            column_type = 'INT'
+        elif column_type == 'double':
+            column_type = 'DOUBLE'
+        elif column_type == 'float':
+            column_type = 'FLOAT'
+        elif column_type == 'timestamp':
+            column_type = 'TIMESTAMP'
+        elif column_type == 'date':
+            column_type = 'DATE'
+        elif column_type == 'boolean':
+            column_type = 'BOOLEAN'
+        elif column_type == 'binary':
+            column_type = 'BINARY'
+        elif column_type == 'array':
+            column_type = 'ARRAY'
+        elif column_type == 'map':
+            column_type = 'MAP'
+        elif column_type == 'struct':
+            column_type = 'STRUCT'
+        else:
+            raise ValueError(f"Unsupported column type: {column_type}")
+
+        glue_columns.append(glue.Column(name=field.name, type=column_type))
+
+    # Create or update the Glue table
+    if table_exists:
+        glue.update_table(DatabaseName=database_name, TableInput=glue.TableInput(Name=table_name, Columns=glue_columns))
+    else:
+        glue.create_table(DatabaseName=database_name, TableInput=glue.TableInput(Name=table_name, Columns=glue_columns))
+
+    return f'Table {table_name} saved in {s3_path} successfully'
+
+def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'):
+    '''
+    Description:
+    This function will check for the lattest modfied date in the s3 bucket for objects
+
+    Args:
+    s3_path: s3 location where the table will be created
+    time_interval: time interval in hours optional
+    region: region where the table will be created by default is us-east-1
+
+    returns:
+    A string with the last modified date
+    How to use:
+    get_last_modified_date(s3_path)
+    '''
+    if not s3_path.startswith('s3://'):
+        raise ValueError(f'S3 path must start with "s3://" got {s3_path}')
+    
+    bucket = s3_path[5:].split('/')[0]
+    key = '/'.join(s3_path[5:].split('/')[1:])
+    s3 = boto3.client('s3', region_name=region)
+
+    response = s3.list_objects_v2(Bucket=bucket, Prefix=key)
+    if 'Contents' in response:
+        last_modified = max([obj['LastModified'] for obj in response['Contents']])
+        if time_interval:
+            last_modified = last_modified - timedelta(hours=time_interval)
+    else:
+        last_modified = None
+    return last_modified.strftime('%Y-%m-%d %H:%M:%S') 
