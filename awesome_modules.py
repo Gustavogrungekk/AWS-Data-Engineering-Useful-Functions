@@ -561,4 +561,51 @@ def estimate_size(spark, df)-> str:
     s = np.round(df_size_in_bytes / p, 2)
     return f"{s} {size_name[i]}"
     
-estimate_size(spark, df)
+
+def success(s3_path:str=None):
+    """
+    Send a _SUCCESS.txt file to the specified S3 path.
+
+    Parameters:
+    s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
+    
+    Returns:
+    str: Success message if the file is uploaded, or an error message if it fails.
+    """
+    # Extracting bucket name and prefix from the provided s3 path:
+    if not s3_path.startswith('s3://'):
+        raise Exception("Invalid S3 Path!")
+
+    bucket = s3_path[5:].split('/')[0]
+    prefix = s3_path.split(bucket)[1].lstrip('/')
+    try:
+        s3 = boto3.client('s3')
+        s3.put_object(Body=b'', Bucket=bucket, Key=f'{prefix}_SUCCESS')
+        print(f'Successfully sent _SUCCESS to {s3_path}')
+        return
+    except Exception as e:
+        return f'Failed to send _SUCCESS.txt to {s3_path}: {e}'
+    
+
+def check_success(s3_path:str=None):
+    """
+    Check if the _SUCCESS.txt file exists in the specified S3 path.
+
+    Parameters:
+    s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
+
+    Returns:
+    bool: True if the _SUCCESS.txt file exists, False if it doesn't.
+    """
+    # Extracting bucket name and prefix from the provided s3 path:
+    if not s3_path.startswith('s3://'):
+        raise Exception("Invalid S3 Path!")
+
+    bucket = s3_path[5:].split('/')[0]
+    prefix = s3_path.split(bucket)[1].lstrip('/')
+    try:
+        s3 = boto3.client('s3')
+        s3.head_object(Bucket=bucket, Key=f'{prefix}_SUCCESS')
+        return True
+    except Exception as e:
+        return False
