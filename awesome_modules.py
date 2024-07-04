@@ -806,29 +806,6 @@ def get_table(spark, database_name:str, table_name:str, view=None, dataframe=Non
         return df
     raise ValueError("Must specify either view or dataframe")
 
-def get_businss_days(country:str, start_date:str, end_date:str):
-    '''
-    Description:
-    This function will return the number of business days between two dates
-
-    Args:
-    country: country code for example 'US' or Brazil 'BR'
-    start_date: start date
-    end_date: end date
-
-    returns:
-    A integer with the number of business days
-    How to use:
-    get_businss_days(country, start_date, end_date)
-    '''
-    if country == 'US':
-        holidays = US()
-    elif country == 'BR':
-        holidays = Brazil()
-    else:
-        raise ValueError("Country must be 'US' or 'BR'")
-    return len(pd.date_range(start_date, end_date).difference(holidays))
-
 def get_business_days(country: str, start_date: str, end_date: str) -> list:
     """
     Returns a list of business days between start_date and end_date for a given country.
