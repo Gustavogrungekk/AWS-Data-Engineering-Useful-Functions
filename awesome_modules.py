@@ -7,64 +7,80 @@
 # Version: 1.0
 #===================================================================================================================#
 
-# Imports
-from pyspark.sql import SparkSession
-from pyspark.sql.utils import AnalysisException
-from pyathena import connect
-from pyathena.pandas.cursor import PandasCursor
-import boto3
-import os
-import pandas as pd
-from datetime import datetime, timedelta
-import re
-import unicodedata
-from io import BytesIO
-from botocore.exceptions import ClientError
-import repartipy
-import math
-import numpy as np
-import holidays
-
-def spark_session():
+def load_env(enable_spark: bool = False):
     '''
     Description:
-    This function returns a spark session to be used in all the pyspark scripts
-    
-    returns:
-    A spark session
-    How to use:
-    spark = spark_session()
-    '''
-    spark = SparkSession.builder.appName('SparkDevelopment') \
-    .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
-    .config('spark.sql.extensions', 'io.delta.sql.DeltaSparkSessionExtension') \
-    .config('spark.sql.catalog', 'org.apache.spark.sql.delta.catalog.DeltaCatalog') \
-    .config('spark.delta.logStore.class', 'org.apache.spark.sql.delta.storage.S3SingleDriverLogStore') \
-    .config('spark.sql.legacy.parquet.int96RebaseModeInRead', 'CORRECTED') \
-    .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
-    .config('spark.sql.legacy.parquet.datetimeRebaseModeInRead', 'CORRECTED') \
-    .config('spark.sql.legacy.parquet.datetimeRebaseModeInWrite', 'CORRECTED') \
-    .config('spark.driver.extraJavaOptions', '-XX:+UseG1GC')\
-    .config('spark.dynamicAllocation.enabled', 'true') \
-    .config('spark.dynamicAllocation.minExecutors', '1') \
-    .config('spark.dynamicAllocation.maxExecutors', '10') \
-    .config('spark.executor.memory', '4g') \
-    .config('spark.driver.memory', '2g') \
-    .config('spark.executor.cores', '2') \
-    .config('spark.driver.cores', '1') \
-    .config('spark.executor.instances', '4') \
-    .config('spark.memory.fraction', '0.8') \
-    .config('spark.memory.storageFraction', '0.2') \
-    .config('spark.dynamicAllocation.enabled', 'true') \
-    .config('spark.dynamicAllocation.minExecutors', '1') \
-    .config('spark.dynamicAllocation.maxExecutors', '10') \
-    .config('spark.dynamicAllocation.initialExecutors', '2') \
-    .config('spark.dynamicAllocation.executorIdleTimeout', '60s') \
-    .config('maxPartitionBytes', '128MB') \
-    .enableHiveSupport() \
-    .getOrCreate()
-    return spark
+    This function will load the dependencies for your project
 
+    Args:
+    enable_spark: boolean if you want to use pyspark
+
+    How to use:
+    load_dependencies(enable_spark=True|False)
+    '''
+    global pd, np, plt, sns, json, BytesIO, re, unicodedata, holidays, math, csv
+    global datetime, timedelta, date, relativedelta, ClientError, boto3, os, sys, wr, psycopg2
+
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import json
+    from io import BytesIO
+    import re
+    import unicodedata
+    import holidays
+    import math
+    import csv
+    from datetime import datetime, timedelta, date
+    from dateutil.relativedelta import relativedelta
+    from botocore.exceptions import ClientError
+    import boto3
+    import os
+    import sys
+    import awswrangler as wr
+    import repartipy
+    import psycopg2
+
+    if enable_spark:
+        global spark, F, Window
+        from pyspark.sql import SparkSession
+        from pyspark.sql import types as T
+        from pyspark.sql import functions as F
+        from pyspark.sql import Window
+        from pyspark.sql.utils import AnalysisException
+
+
+        # Spark Session
+        spark = SparkSession.builder.appName('SparkDevelopment') \
+            .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
+            .config('spark.sql.extensions', 'io.delta.sql.DeltaSparkSessionExtension') \
+            .config('spark.sql.catalog', 'org.apache.spark.sql.delta.catalog.DeltaCatalog') \
+            .config('spark.delta.logStore.class', 'org.apache.spark.sql.delta.storage.S3SingleDriverLogStore') \
+            .config('spark.sql.legacy.parquet.int96RebaseModeInRead', 'CORRECTED') \
+            .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
+            .config('spark.sql.legacy.parquet.datetimeRebaseModeInRead', 'CORRECTED') \
+            .config('spark.sql.legacy.parquet.datetimeRebaseModeInWrite', 'CORRECTED') \
+            .config('spark.driver.extraJavaOptions', '-XX:+UseG1GC') \
+            .config('spark.dynamicAllocation.enabled', 'true') \
+            .config('spark.dynamicAllocation.minExecutors', '1') \
+            .config('spark.dynamicAllocation.maxExecutors', '10') \
+            .config('spark.executor.memory', '4g') \
+            .config('spark.driver.memory', '2g') \
+            .config('spark.executor.cores', '2') \
+            .config('spark.driver.cores', '1') \
+            .config('spark.executor.instances', '4') \
+            .config('spark.memory.fraction', '0.8') \
+            .config('spark.memory.storageFraction', '0.2') \
+            .config('spark.dynamicAllocation.initialExecutors', '2') \
+            .config('spark.dynamicAllocation.executorIdleTimeout', '60s') \
+            .config('maxPartitionBytes', '128MB') \
+            .enableHiveSupport() \
+            .getOrCreate()
+        print("Spark session initialized with the specified configuration.")
+        return spark
+
+    print("Dependencies loaded.")
 
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
@@ -828,10 +844,11 @@ def get_business_days(country: str, start_date: str, end_date: str) -> list:
     Example:
     get_business_days('BR', '2024-01-01', '2024-07-31')
     """
-
-    start = pd.to_datetime(start_date)
-    end = pd.to_datetime(end_date)
-    all_days = pd.date_range(start=start, end=end, freq='D')
+    
+    # Convert start and end dates to datetime
+    start = pd.to_datetime(start_date) 
+    end = pd.to_datetime(end_date) 
+    all_days = pd.date_range(start=start, end=end, freq='D') # Generate all days between start and end
 
     # Get the country's holidays
     country_holidays = holidays.CountryHoliday(country)
@@ -843,3 +860,4 @@ def get_business_days(country: str, start_date: str, end_date: str) -> list:
     business_days_str = [day.strftime('%Y-%m-%d') for day in business_days]
 
     return business_days_str
+
