@@ -23,6 +23,48 @@ from botocore.exceptions import ClientError
 import repartipy
 import math
 import numpy as np
+import holidays
+
+def spark_session():
+    '''
+    Description:
+    This function returns a spark session to be used in all the pyspark scripts
+    
+    returns:
+    A spark session
+    How to use:
+    spark = spark_session()
+    '''
+    spark = SparkSession.builder.appName('SparkDevelopment') \
+    .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
+    .config('spark.sql.extensions', 'io.delta.sql.DeltaSparkSessionExtension') \
+    .config('spark.sql.catalog', 'org.apache.spark.sql.delta.catalog.DeltaCatalog') \
+    .config('spark.delta.logStore.class', 'org.apache.spark.sql.delta.storage.S3SingleDriverLogStore') \
+    .config('spark.sql.legacy.parquet.int96RebaseModeInRead', 'CORRECTED') \
+    .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
+    .config('spark.sql.legacy.parquet.datetimeRebaseModeInRead', 'CORRECTED') \
+    .config('spark.sql.legacy.parquet.datetimeRebaseModeInWrite', 'CORRECTED') \
+    .config('spark.driver.extraJavaOptions', '-XX:+UseG1GC')\
+    .config('spark.dynamicAllocation.enabled', 'true') \
+    .config('spark.dynamicAllocation.minExecutors', '1') \
+    .config('spark.dynamicAllocation.maxExecutors', '10') \
+    .config('spark.executor.memory', '4g') \
+    .config('spark.driver.memory', '2g') \
+    .config('spark.executor.cores', '2') \
+    .config('spark.driver.cores', '1') \
+    .config('spark.executor.instances', '4') \
+    .config('spark.memory.fraction', '0.8') \
+    .config('spark.memory.storageFraction', '0.2') \
+    .config('spark.dynamicAllocation.enabled', 'true') \
+    .config('spark.dynamicAllocation.minExecutors', '1') \
+    .config('spark.dynamicAllocation.maxExecutors', '10') \
+    .config('spark.dynamicAllocation.initialExecutors', '2') \
+    .config('spark.dynamicAllocation.executorIdleTimeout', '60s') \
+    .config('maxPartitionBytes', '128MB') \
+    .enableHiveSupport() \
+    .getOrCreate()
+    return spark
+
 
 
 def sync_s3_bucket(S3_uri: str, Output_location: str):
@@ -747,3 +789,57 @@ def get_table(spark, database_name:str, table_name:str, view=None, dataframe=Non
         print(f'Dataframe {table_name} created successfully')
         return df
     raise ValueError("Must specify either view or dataframe")
+
+def get_businss_days(country:str, start_date:str, end_date:str):
+    '''
+    Description:
+    This function will return the number of business days between two dates
+
+    Args:
+    country: country code for example 'US' or Brazil 'BR'
+    start_date: start date
+    end_date: end date
+
+    returns:
+    A integer with the number of business days
+    How to use:
+    get_businss_days(country, start_date, end_date)
+    '''
+    if country == 'US':
+        holidays = US()
+    elif country == 'BR':
+        holidays = Brazil()
+    else:
+        raise ValueError("Country must be 'US' or 'BR'")
+    return len(pd.date_range(start_date, end_date).difference(holidays))
+
+def get_business_days(country: str, start_date: str, end_date: str) -> list:
+    """
+    Returns a list of business days between start_date and end_date for a given country.
+
+    Parameters:
+    - country (str): The country code (e.g., 'US' for the United States, 'UK' for the United Kingdom, 'BR' for Brazil).
+    - start_date (str): The start date in 'YYYY-MM-DD' format.
+    - end_date (str): The end date in 'YYYY-MM-DD' format.
+
+    Returns:
+    - list: A list of business days (in 'YYYY-MM-DD' format) between the given dates for the specified country.
+
+    Example:
+    get_business_days('BR', '2024-01-01', '2024-07-31')
+    """
+
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date)
+    all_days = pd.date_range(start=start, end=end, freq='D')
+
+    # Get the country's holidays
+    country_holidays = holidays.CountryHoliday(country)
+
+    # Filter out weekends and holidays
+    business_days = [day for day in all_days if day.weekday() < 5 and day not in country_holidays]
+
+    # Convert business days to string format
+    business_days_str = [day.strftime('%Y-%m-%d') for day in business_days]
+
+    return business_days_str
