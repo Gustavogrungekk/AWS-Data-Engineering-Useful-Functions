@@ -879,3 +879,36 @@ def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requ
     except Exception as e:
         print(f"An error occurred: {e}")
         return str(e)
+
+def aws_sso_login(profile_name:str,
+                sso_start_url:str, 
+                sso_region:str, 
+                account_id:str, 
+                role_name:str):
+    import subprocess
+
+    '''
+    Automate the AWS SSO login process.
+
+    Args:
+    profile_name: Name of the AWS CLI profile.
+    sso_start_url: AWS SSO start URL.
+    sso_region: AWS SSO region.
+    account_id: AWS account ID.
+    role_name: AWS IAM role name.
+
+    How to use:
+    aws_sso_login(profile_name='default', sso_start_url='https://my-sso-portal.awsapps.com/start', sso_region='us-west-2', account_id='123456789012', role_name='MyRole')
+    '''
+    configure_sso_command = [
+        'aws', 'configure', 'set', f'profile.{profile_name}.sso_start_url', sso_start_url,
+        'aws', 'configure', 'set', f'profile.{profile_name}.sso_region', sso_region,
+        'aws', 'configure', 'set', f'profile.{profile_name}.sso_account_id', account_id,
+        'aws', 'configure', 'set', f'profile.{profile_name}.sso_role_name', role_name
+    ]
+    
+    for i in range(0, len(configure_sso_command), 3):
+        subprocess.run(configure_sso_command[i:i+3], check=True)
+    login_command = ['aws', 'sso', 'login', '--profile', profile_name]
+    subprocess.run(login_command, check=True)
+    print(f"Logged in to AWS account {account_id} with profile {profile_name}.")
