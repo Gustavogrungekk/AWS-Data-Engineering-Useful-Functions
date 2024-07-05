@@ -838,3 +838,44 @@ def get_business_days(country: str, start_date: str, end_date: str) -> list:
 
     return business_days_str
 
+def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requirements.txt'):
+    '''
+    Description: I've developed this function to automate the packing of python libraries and store them in S3.
+    So you can use it whenever you want.
+
+    Args:
+    libname: name of the library
+    format: format of the library ex: zip
+    s3_path: path of the library in S3 ex: s3://bucket/prefix
+    requirements: name of the requirements file ex: requirements.txt make sure to store it in the same folder as the library containing the libraries you want to pack.
+
+    How to use:
+    pack_libs(libname='libs', format='zip', s3_path='s3://gustavogrungekk/libs/')
+    '''
+    import boto3
+    import subprocess
+    import shutil
+    import os
+    import sys
+    try:
+        # Initialize S3 client
+        s3 = boto3.client('s3')
+        bucket = s3_path[5:].split('/')[0]
+        prefix = s3_path.split(bucket)[1].lstrip('/')
+        print(f"Downloading {requirements} from {s3_path}...")
+        s3.download_file(bucket, f'{prefix}{requirements}', requirements)
+        print(f"Installing libraries to {libname}...")
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', requirements, '--target', libname])
+        print(f"Packing libraries into {libname}.{format}...")
+        shutil.make_archive(libname, format, root_dir=libname)
+        print(f"Uploading {libname}.{format} to {s3_path}...")
+        s3.upload_file(f'{libname}.{format}', bucket, f'{prefix}{libname}.{format}')
+        print("Cleaning up local files...")
+        shutil.rmtree(libname)
+        os.remove(f'{libname}.{format}')
+        os.remove(requirements)
+        print(f"{libname}.{format} uploaded to {s3_path}")
+        return f'{libname}.{format} uploaded to {s3_path}'
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return str(e)
