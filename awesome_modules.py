@@ -875,7 +875,7 @@ def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requ
         os.remove(f'{libname}.{format}')
         os.remove(requirements)
         print(f"{libname}.{format} uploaded to {s3_path}")
-        return f'{libname}.{format} uploaded to {s3_path}'
+        return f'Successfully packed {libname}.{format} and uploaded to {s3_path}'
     except Exception as e:
         print(f"An error occurred: {e}")
         return str(e)
