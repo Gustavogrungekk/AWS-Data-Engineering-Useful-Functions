@@ -233,6 +233,7 @@ def process_files(input_path, database_name):
                 create_or_update_table(spark, glue_client, database_name, table_name, file_path, 'csv')
 
     spark.stop()
+from pyspark.sql import SparkSession
 
 def cdp_to_s3(username: str,
               passkey: str,
@@ -244,7 +245,8 @@ def cdp_to_s3(username: str,
               schema_name: str = None,
               table_name: str = None,
               partitionby: str = None,
-              optional_athena_path: str = None):
+              optional_athena_path: str = None,
+              spark: SparkSession = None):
     """
     Transfer data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally
     register it as a table in the AWS Glue Data Catalog.
@@ -261,6 +263,7 @@ def cdp_to_s3(username: str,
     table_name (str, optional): Name of the table to be registered in the Glue catalog. Required if catalog_table is True.
     partitionby (str, optional): Column name(s) to partition the data by before writing to S3 and registering as a table.
     optional_athena_path (str, optional): Custom path to use for the Athena table.
+    spark (SparkSession, optional): Existing SparkSession. If None, a new SparkSession will be created.
 
     Returns:
     str: Success message if data transfer and optional table registration are successful, or error message if failed.
@@ -282,10 +285,14 @@ def cdp_to_s3(username: str,
     >>> print(result)
     'Data transferred successfully to s3://your-bucket/output-path/'
     """
-    spark = SparkSession.builder \
-        .appName("cdp_to_s3") \
-        .enableHiveSupport() \
-        .getOrCreate()
+    if spark is None:
+        spark = SparkSession.builder \
+            .appName("cdp_to_s3") \
+            .enableHiveSupport() \
+            .getOrCreate()
+        created_spark = True
+    else:
+        created_spark = False
 
     try:
         # Read data from Hive using JDBC and the specified query
@@ -329,8 +336,8 @@ def cdp_to_s3(username: str,
         return f'Failed to transfer data: {str(e)}'
 
     finally:
-        spark.stop()
-
+        if created_spark:
+            spark.stop()
 
 def get_latest_partition(database_name, table_name, aws_region='us-west-2'):
     """
@@ -504,69 +511,6 @@ def clear_string(text: str, remove: set = None) -> str:
         return clean_text
 
     return text
-
-def run_athena_query_and_save_to_s3(query:str, s3_location:str, filename:str, OutputLocation:str):
-    """
-    Runs a query on Amazon Athena, monitors its execution status, and saves the result as an Excel file in S3.
-    
-    Parameters:
-    - query: The SQL query to execute on Athena.
-    - s3_location: The S3 bucket where the Excel file will be saved.
-    - filename: The name of the Excel file to be saved.
-    """
-    try:
-        # Initialize Athena client
-        athena_client = boto3.client('athena')
-
-        # Start query execution
-        response = athena_client.start_query_execution(
-            QueryString=query,
-            ResultConfiguration={'OutputLocation': OutputLocation}
-        )
-        
-        # Get query execution ID
-        query_execution_id = response['QueryExecutionId']
-        print(f"Query execution ID: {query_execution_id}")
-        
-        # Monitor query execution status
-        while True:
-            # Checking the query status
-            query_status = athena_client.get_query_execution(QueryExecutionId=query_execution_id)['QueryExecution']['Status']['State']
-            
-            if query_status == 'SUCCEEDED':
-                break
-            elif query_status in ['FAILED', 'CANCELLED']:
-                print(f"Query execution failed or was cancelled. Status: {query_status}")
-                return
-            else:
-                print(f"Query status: {query_status}. Waiting...")
-                time.sleep(10)  # Wait 10 seconds before checking again
-        
-        # Get query results
-        results_response = athena_client.get_query_results(QueryExecutionId=query_execution_id)
-        
-        # Process results into a DataFrame (assuming first row is header)
-        header = [col['Label'] for col in results_response['ResultSet']['ResultSetMetadata']['ColumnInfo']]
-        rows = [[val.get('VarCharValue', '') for val in row['Data']] for row in results_response['ResultSet']['Rows'][1:]]
-        df = pd.DataFrame(rows, columns=header)
-        
-        # Save DataFrame to Excel in memory
-        excel_buffer = BytesIO()
-        df.to_excel(excel_buffer, index=False)
-        excel_buffer.seek(0)
-        
-        # Upload Excel file to S3
-        s3 = boto3.client('s3')
-        s3_key = f"{filename}.xlsx"
-        s3.put_object(Body=excel_buffer, Bucket=s3_location, Key=s3_key)
-        
-        print(f"Excel file saved to S3://{s3_location}/{s3_key}")
-    
-    except ClientError as e:
-        print(f"Error running Athena query: {e}")
-
-    except Exception as e:
-        print(f"Unexpected error: {e}")
 
 def upload_file_to_s3(file_location: str, bucket: str, object_path: str = None):
     '''
