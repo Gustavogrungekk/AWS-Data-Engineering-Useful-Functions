@@ -912,3 +912,47 @@ def aws_sso_login(profile_name:str,
     login_command = ['aws', 'sso', 'login', '--profile', profile_name]
     subprocess.run(login_command, check=True)
     print(f"Logged in to AWS account {account_id} with profile {profile_name}.")
+def list_size(s3_path: str, showdir: bool = False):
+    '''
+    Description: List the size of files in an S3 bucket.
+
+    Args:
+    s3_path: path of the S3 bucket ex: s3://bucket/prefix
+
+    How to use:
+    list_size(s3_path='s3://bucket/prefix')
+    '''
+
+    if not s3_path.startswith('s3://'):
+        raise ValueError('S3 path is either invalid or wrong s3 path')
+    
+    bucket = s3_path[5:].split('/')[0]
+    prefix = s3_path.split(bucket, 1)[1].lstrip('/')
+    
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+    
+    total_size = 0
+    for page in pages:
+        if 'Contents' in page:
+            for obj in page['Contents']:
+                total_size += obj['Size']
+                if total_size > 0:
+                    if showdir:
+                        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+                        i = int(math.floor(math.log(total_size, 1024)))
+                        p = math.pow(1024, i)
+                        s = round(total_size / p, 2)
+                        print(f"{obj['Key']}: {s}{size_name[i]}")
+        
+    if total_size > 0:
+        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+        i = int(math.floor(math.log(total_size, 1024)))
+        p = math.pow(1024, i)
+        s = round(total_size / p, 2)
+        size_converted = f'{s}{size_name[i]}'
+    else:
+        size_converted = '0B'
+    
+    return f'Total size: {size_converted}'
