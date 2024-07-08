@@ -912,7 +912,9 @@ def aws_sso_login(profile_name:str,
     login_command = ['aws', 'sso', 'login', '--profile', profile_name]
     subprocess.run(login_command, check=True)
     print(f"Logged in to AWS account {account_id} with profile {profile_name}.")
-def list_size(s3_path: str, showdir: bool = False):
+
+
+def list_s3_size(s3_path: str, showdir: bool = False):
     '''
     Description: List the size of files in an S3 bucket.
 
