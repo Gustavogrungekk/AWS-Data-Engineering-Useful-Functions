@@ -961,3 +961,54 @@ def list_s3_size(s3_path: str, showdir: bool = False):
     
     print(f'Total size: {size_converted}\nTotal Objects: {total_objects - 1}')
 
+
+def run_athena_query(query: str, workgroup: str = 'primary'):
+    athena = boto3.client('athena', region_name='sa-east-1')
+    response = athena.start_query_execution(QueryString=query, WorkGroup=workgroup)
+    while True:
+        query_status = athena.get_query_execution(QueryExecutionId=response['QueryExecutionId'])
+        state = query_status['QueryExecution']['Status']['State']
+        if state in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
+            break
+        sleep(5)
+
+    if state != 'SUCCEEDED':
+        raise Exception(f'Query failed: {response}')
+    return response['QueryExecutionId']
+
+def save_athena_results(query,
+                        s3_path: str,
+                        s3_athena_output: str,
+                        writemode: str = 'append',
+                        workgroup: str = 'primary',
+                        to_sas: bool = False,
+                        workspace: str = None,
+                        table_name: str = None,
+                        partition: list = None,
+                        spark=None):
+    if spark is None:
+        spark = SparkSession.builder.appName('save_athena_results').getOrCreate()
+
+    # Execute the query on Athena
+    query_id = run_athena_query(query, workgroup)
+
+    try:
+        # Collect the output from S3
+        output_path = f'{s3_athena_output}/{query_id}'
+        table = spark.read.format('csv').option('header', 'true').load(output_path)
+        
+        if to_sas and not workspace and not table_name and not partition:
+            table.coalesce(1).write.mode(writemode).option('header', 'true').option('quote', '"').option('delimiter', '|').csv(s3_path)
+        elif partition and not workspace and not table_name:
+            table.write.mode(writemode).partitionBy(partition).parquet(s3_path)
+        elif not partition and not workspace and not table_name:
+            table.write.mode(writemode).parquet(s3_path)
+        elif workspace and table_name:
+            table.write.mode(writemode).partitionBy(partition if partition else []).format('parquet').option('path', s3_path).saveAsTable(f'{workspace}.{table_name}')
+
+            # Running MSCK REPAIR TABLE command
+            run_athena_query(f'MSCK REPAIR TABLE {workspace}.{table_name}', workgroup)
+        return f'Data saved successfully to {s3_path}'
+
+    except Exception as e:
+        return f'Failed to save results: {str(e)}'
