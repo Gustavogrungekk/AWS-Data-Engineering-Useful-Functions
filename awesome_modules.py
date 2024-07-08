@@ -924,7 +924,6 @@ def list_s3_size(s3_path: str, showdir: bool = False):
     How to use:
     list_size(s3_path='s3://bucket/prefix')
     '''
-
     if not s3_path.startswith('s3://'):
         raise ValueError('S3 path is either invalid or wrong s3 path')
     
@@ -936,10 +935,13 @@ def list_s3_size(s3_path: str, showdir: bool = False):
     pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
     
     total_size = 0
+    total_objects = 0
+
     for page in pages:
         if 'Contents' in page:
             for obj in page['Contents']:
                 total_size += obj['Size']
+                total_objects +=1
                 if total_size > 0:
                     if showdir:
                         size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
@@ -957,4 +959,5 @@ def list_s3_size(s3_path: str, showdir: bool = False):
     else:
         size_converted = '0B'
     
-    return f'Total size: {size_converted}'
+    print(f'Total size: {size_converted}\nTotal Objects: {total_objects - 1}')
+
