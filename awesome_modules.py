@@ -6,83 +6,158 @@
 # Date: 2024-06-19
 # Version: 1.0
 #===================================================================================================================#
+# INDEX:
+# 1. sync_s3_bucket: This function syncs files from an S3 bucket to a local directory.
+# 2. cdp_to_s3: This function transfers data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally registers it as a table in the AWS Glue Data Catalog.
+# 3. s3_contains: This function verifies if an S3 path exists.
+# 4. try_date: This function tries to convert a string to a date.
+# 5. clear_string: This function removes special characters from a string.
+# 6. estimate_size: This function estimates the size of a DataFrame in a human-readable format using SI units.
+# 7. success: This functino will upload a _SUCCESS file to an S3 path.
+# 8. check_success: This function checks if the _SUCCESS.txt file exists in the specified S3 path.
+# 9. create_update_table: This function will mimic the behavior of aws glue crawler replication to update a table in aws glue catalog or create it if it doesn't exist.
+# 10. get_last_modified_date: This function will check for the lattest modfied date in the s3 bucket for objects
+# 11. get_table: This function will retrieve a table from the AWS Glue Data Catalog.
+# 12. get_business_days: This function returns a list of business days between start_date and end_date for a given country.
+# 13. pack_libs: This function packs python libraries and store them in S3.
+# 14. aws_sso_login: This function automates the AWS SSO login process.
+# 15. list_s3_size: This function lists the size of files in an S3 bucket.
+# 16. save_athena_results: This function saves the results of an Athena query to an S3 path.
+# 17. log: This function logs a message using the provided Glue context.
+# ===================================================================================================================#
+# Auxiliary Functions
+# 1. convert_bytes: This function convert bytes into human readable format
+# 2. get_bucket: This function get bucket name and prefix from s3 path given a full s3 uri path
+# 3. run_athena_query: This function run an athena query and wait for it to finish
+# 4. clear_s3_bucket: This function will clear an S3 bucket
+# 5. s3_updown: This function downloads or uploads files from/to S3
+# ===================================================================================================================#
 
-def load_env(enable_spark: bool = False):
+# Dependency Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
+from io import BytesIO
+import re
+import unicodedata
+import holidays
+import math
+import csv
+from datetime import datetime, timedelta, date
+from dateutil.relativedelta import relativedelta
+import boto3
+import os
+import repartipy
+from awsglue.context import GlueContext
+from pyspark.context import SparkContext
+from pyspark.sql import SparkSession
+from awsglue.dynamicframe import DynamicFrame
+from pyspark.sql import types as T
+from pyspark.sql import functions as F
+from pyspark.sql import Window
+from pyspark.sql.utils import AnalysisException
+
+# ===================================================# Auxiliary Functions #===================================================#
+# Aux 1. Convert bytes into human readable format
+def convert_bytes(byte: int):
+    '''
+    Description: Convert bytes into human readable format
+    Args:
+        bytez: number of bytes
+    How to use:
+    convert_bytes(bytez=398345)
+    '''
+    if byte == 0:
+        return '0B'
+    size_name = ('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB')
+    i = int(math.floor(math.log(byte, 1024)))
+    p = math.pow(1024, i)
+    s = round(byte / p, 2)
+    return '%s %s' % (s, size_name[i])
+
+# Aux 2. Get bucket name and prefix from s3 path
+def get_bucket(s3_uri):
+    '''
+    Description: Get bucket name and prefix from s3 path
+    '''
+    if not s3_uri.startswith('s3://'):
+        raise ValueError(f'S3 path is either invalid or wrong s3 path: {s3_uri}')
+    bucket = s3_uri[5:].split('/')[0]
+    prefix = s3_uri.split(bucket)[1].lstrip('/')
+
+    return bucket, prefix
+
+# Aux 3. Run an athena query and wait for it to finish, return the query execution id
+def run_athena_query(query: str, workgroup: str = 'primary'):
+    '''
+    Description: Run an athena query and wait for it to finish
+    return the query execution id 
+    '''
+
+    athena = boto3.client('athena', region_name='sa-east-1')
+    response = athena.start_query_execution(QueryString=query, WorkGroup=workgroup)
+    while True:
+        query_status = athena.get_query_execution(QueryExecutionId=response['QueryExecutionId'])
+        state = query_status['QueryExecution']['Status']['State']
+        if state in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
+            break
+        sleep(5)
+
+    if state != 'SUCCEEDED':
+        raise Exception(f'Query failed: {response}')
+    return response['QueryExecutionId']
+
+# Aux 4. Clear S3 bucket
+def clear_s3_bucket(bucket_name: str):
     '''
     Description:
-    This function will load the dependencies for your project
+    This function will clear the specified S3 bucket
+    
+    Args:
+    bucket_name: name of the bucket to be cleared
+
+    Example:
+    clear_s3_bucket('s3://bucket_name/dumps/athena-query-results/')
+    '''
+    bucket, prefix = get_bucket(bucket_name)
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket(bucket)
+
+    # Delete all objects under the specified prefix
+    objects_to_delete = bucket.objects.filter(Prefix=prefix)
+    for obj in objects_to_delete:
+        obj.delete()
+    print(f'Successfully cleared S3 bucket: {bucket_name}')
+
+# Aux 5. Download or upload files from/to S3
+def s3_updown(s3_uri:str, local_path:str, method:str = 'download'):
+    '''
+    Description: Download or upload files from/to S3. 
+    Must specify 'download' or 'upload'
 
     Args:
-    enable_spark: boolean if you want to use pyspark
+    s3_uri: S3 path
+    local_path: Local path
+    method: 'download' or 'upload'
 
     How to use:
-    load_dependencies(enable_spark=True|False)
+    s3_updown(s3_uri, local_path, 'download')
     '''
-    global pd, np, plt, sns, json, BytesIO, re, unicodedata, holidays, math, csv
-    global datetime, timedelta, date, relativedelta, ClientError, boto3, os, sys, wr, psycopg2
+    bucket, prefix = get_bucket(s3_uri)
+    if method == 'download':
+        s3 = boto3.client('s3')
+        s3.download_file(bucket, prefix, local_path)
+    elif method == 'upload':
+        s3 = boto3.client('s3')
+        s3.upload_file(local_path, bucket, prefix)
+    else:
+        raise ValueError(f'Invalid method: {method}')
+    
+# ===================================================# Awesome Modules #===================================================#
 
-    import pandas as pd
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import json
-    from io import BytesIO
-    import re
-    import unicodedata
-    import holidays
-    import math
-    import csv
-    from datetime import datetime, timedelta, date
-    from dateutil.relativedelta import relativedelta
-    from botocore.exceptions import ClientError
-    import boto3
-    import os
-    import sys
-    import awswrangler as wr
-    import repartipy
-    import psycopg2
-
-    if enable_spark:
-        global spark, F, Window
-        from pyspark.sql import SparkSession
-        from pyspark.sql import types as T
-        from pyspark.sql import functions as F
-        from pyspark.sql import Window
-        from pyspark.sql.utils import AnalysisException
-
-
-        # Spark Session
-        spark = SparkSession.builder.appName('SparkDevelopment') \
-            .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
-            .config('spark.sql.extensions', 'io.delta.sql.DeltaSparkSessionExtension') \
-            .config('spark.sql.catalog', 'org.apache.spark.sql.delta.catalog.DeltaCatalog') \
-            .config('spark.delta.logStore.class', 'org.apache.spark.sql.delta.storage.S3SingleDriverLogStore') \
-            .config('spark.sql.legacy.parquet.int96RebaseModeInRead', 'CORRECTED') \
-            .config('spark.sql.legacy.parquet.int96RebaseModeInWrite', 'CORRECTED') \
-            .config('spark.sql.legacy.parquet.datetimeRebaseModeInRead', 'CORRECTED') \
-            .config('spark.sql.legacy.parquet.datetimeRebaseModeInWrite', 'CORRECTED') \
-            .config('spark.driver.extraJavaOptions', '-XX:+UseG1GC') \
-            .config('spark.dynamicAllocation.enabled', 'true') \
-            .config('spark.dynamicAllocation.minExecutors', '1') \
-            .config('spark.dynamicAllocation.maxExecutors', '10') \
-            .config('spark.executor.memory', '4g') \
-            .config('spark.driver.memory', '2g') \
-            .config('spark.executor.cores', '2') \
-            .config('spark.driver.cores', '1') \
-            .config('spark.executor.instances', '4') \
-            .config('spark.memory.fraction', '0.8') \
-            .config('spark.memory.storageFraction', '0.2') \
-            .config('spark.dynamicAllocation.initialExecutors', '2') \
-            .config('spark.dynamicAllocation.executorIdleTimeout', '60s') \
-            .config('maxPartitionBytes', '128MB') \
-            .enableHiveSupport() \
-            .getOrCreate()
-        print("Spark session initialized with the specified configuration.")
-        return spark
-
-    print("Dependencies loaded.")
-
-
+# 1. sync_s3_bucket
 def sync_s3_bucket(S3_uri: str, Output_location: str):
     
     """
@@ -145,96 +220,7 @@ def sync_s3_bucket(S3_uri: str, Output_location: str):
     
     return f'All files downloaded successfully to {Output_location}.'
 
-
-def create_or_update_table(spark, glue_client, database_name, table_name, s3_path, file_format):
-    if file_format == 'parquet':
-        df = spark.read.parquet(s3_path)
-    elif file_format == 'csv':
-        df = spark.read.csv(s3_path, header=True, inferSchema=True)
-    else:
-        raise ValueError("Unsupported file format")
-
-    # Infer schema
-    schema = df.schema
-
-    # Try to create or update the Glue table
-    try:
-        glue_client.get_table(DatabaseName=database_name, Name=table_name)
-        table_exists = True
-    except glue_client.exceptions.EntityNotFoundException:
-        table_exists = False
-
-    # Convert schema to Glue-compatible format
-    glue_columns = []
-    for field in schema.fields:
-        column_type = field.dataType.simpleString()
-        if column_type == 'string':
-            column_type = 'STRING'
-        elif column_type == 'integer':
-            column_type = 'INT'
-        elif column_type == 'double':
-            column_type = 'DOUBLE'
-        elif column_type == 'float':
-            column_type = 'FLOAT'
-        elif column_type == 'long':
-            column_type = 'BIGINT'
-        elif column_type == 'boolean':
-            column_type = 'BOOLEAN'
-        elif column_type == 'date':
-            column_type = 'DATE'
-        elif column_type == 'timestamp':
-            column_type = 'TIMESTAMP'
-        else:
-            column_type = 'STRING'  # Default fallback
-        glue_columns.append({'Name': field.name, 'Type': column_type})
-
-    table_input = {
-        'Name': table_name,
-        'StorageDescriptor': {
-            'Columns': glue_columns,
-            'Location': s3_path,
-            'InputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat' if file_format == 'parquet' else 'org.apache.hadoop.mapred.TextInputFormat',
-            'OutputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat' if file_format == 'parquet' else 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
-            'Compressed': False,
-            'SerdeInfo': {
-                'SerializationLibrary': 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' if file_format == 'parquet' else 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe',
-                'Parameters': {'serialization.format': '1'}
-            },
-            'StoredAsSubDirectories': False
-        },
-        'TableType': 'EXTERNAL_TABLE'
-    }
-
-    if table_exists:
-        glue_client.update_table(DatabaseName=database_name, TableInput=table_input)
-        print(f"Updated table {table_name} in database {database_name}")
-    else:
-        glue_client.create_table(DatabaseName=database_name, TableInput=table_input)
-        print(f"Created table {table_name} in database {database_name}")
-
-def process_files(input_path, database_name):
-    # Initialize Spark session
-    spark = SparkSession.builder \
-        .appName("Glue Crawler Replication") \
-        .getOrCreate()
-
-    # Initialize boto3 client
-    glue_client = boto3.client('glue')
-
-    # Iterate over files in the input directory
-    for root, _, files in os.walk(input_path):
-        for file in files:
-            file_path = os.path.join(root, file)
-            if file.endswith(".parquet"):
-                table_name = os.path.splitext(file)[0]
-                create_or_update_table(spark, glue_client, database_name, table_name, file_path, 'parquet')
-            elif file.endswith(".csv"):
-                table_name = os.path.splitext(file)[0]
-                create_or_update_table(spark, glue_client, database_name, table_name, file_path, 'csv')
-
-    spark.stop()
-from pyspark.sql import SparkSession
-
+# 2. cdp_to_s3
 def cdp_to_s3(username: str,
               passkey: str,
               jdbc_url: str,
@@ -246,7 +232,7 @@ def cdp_to_s3(username: str,
               table_name: str = None,
               partitionby: str = None,
               optional_athena_path: str = None,
-              spark: SparkSession = None):
+              spark=None):
     """
     Transfer data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally
     register it as a table in the AWS Glue Data Catalog.
@@ -339,62 +325,21 @@ def cdp_to_s3(username: str,
         if created_spark:
             spark.stop()
 
-def get_latest_partition(database_name, table_name, aws_region='us-west-2'):
-    """
-    Get the latest partition from an Athena table with multiple partition columns.
+    
+# 3. s3_contains
+def s3_contains(s3_path: str) -> bool:
+    '''
+    Description: Verifies if an S3 path exists.
 
     Args:
-    database_name (str): The name of the Athena database.
-    table_name (str): The name of the Athena table.
-    aws_region (str): AWS region where the Athena and Glue services are hosted. Default is 'us-west-2'.
+    - s3_path (str): The S3 path to check.
 
     Returns:
-    dict: The latest partition values as a dictionary.
-    """
+    - bool: True if the S3 path exists, False otherwise.
 
-    # Create a Glue client
-    glue_client = boto3.client('glue', region_name=aws_region)
-
-    try:
-        # Get table metadata
-        response = glue_client.get_table(DatabaseName=database_name, Name=table_name)
-        partitions = response['Table']['PartitionKeys']
-
-        if not partitions:
-            raise ValueError(f"No partition keys found for table '{table_name}' in database '{database_name}'.")
-
-        # Extract partition column names
-        partition_columns = [partition['Name'] for partition in partitions]
-
-        # Connect to Athena
-        conn = connect(region_name=aws_region, cursor_class=PandasCursor)
-
-        # Build the query to get the latest partition
-        select_columns = ', '.join(partition_columns)
-        group_by_columns = ', '.join(partition_columns)
-        max_column = f"MAX({partition_columns[-1]}) AS latest_partition"  # Assuming the last partition column is the timestamp or date column
-
-        query = f"""
-        SELECT {select_columns}, {max_column}
-        FROM {database_name}.{table_name}
-        GROUP BY {group_by_columns}
-        ORDER BY latest_partition DESC
-        LIMIT 1
-        """
-
-        # Execute the query
-        df = pd.read_sql(query, conn)
-
-        # Convert result to dictionary
-        latest_partition = df.to_dict(orient='records')[0]
-
-        return latest_partition
-
-    except Exception as e:
-        return f"Failed to get latest partition: {str(e)}"
-    
-
-def s3_contains(s3_path: str) -> bool:
+    Raises:
+    - ValueError: If the S3 path is invalid.
+    '''
 
     if not s3_path.startswith('s3://'):
         raise ValueError(f'S3 path is invalid: {s3_path}')
@@ -416,6 +361,7 @@ def s3_contains(s3_path: str) -> bool:
         print(f'Failed to list objects: {str(e)}')
         return False
     
+# 4. try_date
 def try_date(date_str: str, format = '%Y-%m-%d'):
     """
     Converts various date string formats to 'YYYY-MM-DD' format in Python datetime.date object.
@@ -455,7 +401,7 @@ def try_date(date_str: str, format = '%Y-%m-%d'):
         '%m-%d-%Y',                 # MM-DD-YYYY
         '%y-%m-%d',                 # YY-MM-DD (two-digit year)
         '%y/%m/%d',                 # YY/MM/DD (two-digit year)
-    ]
+        ]
     
     # Attempting to parse the date using each format
     for fmt in date_formats:
@@ -477,6 +423,7 @@ def try_date(date_str: str, format = '%Y-%m-%d'):
     # If none of the formats match, return None or raise an Exception as needed
     raise ValueError(f"Unable to parse date string: {date_str}")
 
+# 5. clear_string
 def clear_string(text: str, remove: set = None) -> str:
     """
     Clears accentuations, special characters, emojis, etc. from the input text and removes specified characters.
@@ -512,30 +459,7 @@ def clear_string(text: str, remove: set = None) -> str:
 
     return text
 
-def upload_file_to_s3(file_location: str, bucket: str, object_path: str = None):
-    '''
-    Uploads a local file to S3
-
-    Args:
-    - file_location: Path to the local file
-    - bucket: Name of the S3 bucket
-    - object_path: Path and name of the file in S3 (optional)
-
-    Returns:
-    - str: Success or error message
-    '''
-    s3 = boto3.client('s3')
-    
-    if object_path is None:
-        # If object_path is not specified, use the local file name
-        object_path = file_location.split('/')[-1]
-    
-    try:
-        s3.upload_file(file_location, bucket, object_path)
-        return f'File {file_location} sent successfully to {bucket}/{object_path}'
-    except Exception as e:
-        return f'Error uploading file: {str(e)}'
-
+# 6. estimate_size
 def estimate_size(spark, df)-> str: 
     """
     Estimates the size of a DataFrame in a human-readable format using SI units.
@@ -554,16 +478,9 @@ def estimate_size(spark, df)-> str:
     if not isinstance(df_size_in_bytes, (int, float)):
         raise TypeError("df_size_in_bytes must be an integer or float.")
 
-    if df_size_in_bytes == 0:
-        return "0B"
+    return convert_bytes(byte=df_size_in_bytes)
 
-    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-    i = int(math.floor(math.log(df_size_in_bytes, 1024)))
-    p = math.pow(1024, i)
-    s = np.round(df_size_in_bytes / p, 2)
-    return f"{s} {size_name[i]}"
-    
-
+# 7. success
 def success(s3_path:str=None):
     """
     Send a _SUCCESS.txt file to the specified S3 path.
@@ -575,11 +492,7 @@ def success(s3_path:str=None):
     str: Success message if the file is uploaded, or an error message if it fails.
     """
     # Extracting bucket name and prefix from the provided s3 path:
-    if not s3_path.startswith('s3://'):
-        raise Exception("Invalid S3 Path!")
-
-    bucket = s3_path[5:].split('/')[0]
-    prefix = s3_path.split(bucket)[1].lstrip('/')
+    bucket, prefix = get_bucket(s3_path)
     try:
         s3 = boto3.client('s3')
         s3.put_object(Body=b'', Bucket=bucket, Key=f'{prefix}_SUCCESS')
@@ -588,7 +501,7 @@ def success(s3_path:str=None):
     except Exception as e:
         return f'Failed to send _SUCCESS.txt to {s3_path}: {e}'
     
-
+# 8. check_success
 def check_success(s3_path:str=None):
     """
     Check if the _SUCCESS.txt file exists in the specified S3 path.
@@ -600,11 +513,7 @@ def check_success(s3_path:str=None):
     bool: True if the _SUCCESS.txt file exists, False if it doesn't.
     """
     # Extracting bucket name and prefix from the provided s3 path:
-    if not s3_path.startswith('s3://'):
-        raise Exception("Invalid S3 Path!")
-
-    bucket = s3_path[5:].split('/')[0]
-    prefix = s3_path.split(bucket)[1].lstrip('/')
+    bucket, prefix = get_bucket(s3_path)
     try:
         s3 = boto3.client('s3')
         s3.head_object(Bucket=bucket, Key=f'{prefix}_SUCCESS')
@@ -612,7 +521,13 @@ def check_success(s3_path:str=None):
     except Exception as e:
         return False
     
-def create_or_update_table(spark, database_name:str, table_name:str, s3_path:str, file_format:str, region:str = 'us-east-1'):
+# 9. create_update_table
+def create_update_table(database_name:str,
+                          table_name:str,
+                          s3_path:str,
+                          file_format:str,
+                          region:str = 'us-east-1',
+                          spark=None):
     '''
     Description:
     This function will mimic the behavior of aws glue crawler replication to update a table in aws glue catalog or create it if it doesn't exist
@@ -630,10 +545,13 @@ def create_or_update_table(spark, database_name:str, table_name:str, s3_path:str
     A string with the success message
     How to use:
     spark = spark_session()
-    create_or_update_table(spark, database_name, table_name, s3_path, file_format)
+    create_update_table(spark, database_name, table_name, s3_path, file_format)
     '''
 
     glue = boto3.client('glue', region_name=region)
+
+    if spark is None:
+        spark = SparkSession.builder.appName('create_update_table').getOrCreate()
 
     if file_format == 'parquet':    
         df = spark.read.parquet(s3_path)
@@ -691,6 +609,7 @@ def create_or_update_table(spark, database_name:str, table_name:str, s3_path:str
 
     return f'Table {table_name} saved in {s3_path} successfully'
 
+# 10. get_last_modified_date
 def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'):
     '''
     Description:
@@ -706,11 +625,8 @@ def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'
     How to use:
     get_last_modified_date(s3_path)
     '''
-    if not s3_path.startswith('s3://'):
-        raise ValueError(f'S3 path must start with "s3://" got {s3_path}')
-    
-    bucket = s3_path[5:].split('/')[0]
-    key = '/'.join(s3_path[5:].split('/')[1:])
+
+    bucket, key = get_bucket(s3_path)
     s3 = boto3.client('s3', region_name=region)
 
     response = s3.list_objects_v2(Bucket=bucket, Prefix=key)
@@ -721,35 +637,51 @@ def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'
     else:
         last_modified = None
     return last_modified.strftime('%Y-%m-%d %H:%M:%S') 
-
-def get_table(spark, database_name:str, table_name:str, view=None, dataframe=None, region:str = 'us-east-1'):
+    
+# 11. get_table
+def get_table(database_name: str, table_name: str, view: str = None, dataframe: str = None, options: dict = None, region: str = 'us-east-1', spark=None, glueContext=None):
     '''
     Description:
-    This function will create a view or a spark dataframe based on aws glue create_dynamic_frame.from_catalog function
+    This function will create a view or a spark dataframe based on AWS Glue create_dynamic_frame.from_catalog function
 
     Args:
-    spark: spark session
-    database_name: name of the database where the table will be created
-    table_name: name of the table to be created
-    view: boolean if the table will be created as a view
-    dataframe: boolean if the table will be created as a spark dataframe
+    spark (SparkSession): Spark session
+    database_name (str): Name of the database where the table will be created
+    table_name (str): Name of the table to be created
+    view (str): Name of the view to create
+    dataframe (str): Name of the dataframe to create
+    options (dict): Options for creating the dynamic frame
+    region (str): AWS region
 
-    returns:
+    Returns:
     A view or a spark dataframe
+
     How to use:
-    get_dataframe(spark, database_name, table_name)
+    get_table(database_name='my_database', table_name='my_table', view='my_view')
     '''
-    glueContext = GlueContext(spark)
+
+    if spark is None:
+        spark = SparkSession.builder.appName('get_table').getOrCreate()
+
+    if glueContext is None:
+        glueContext = GlueContext(spark.sparkContext)
+
+    if options is None:
+        options = {}
+
     if view:
-        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=view).toDF().createOrReplaceTempView(table_name)
-        print(f'View {table_name} created successfully')
+        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=view, **options).toDF()
+        df.createOrReplaceTempView(view)
+        print(f'View {view} created successfully')
         return df
     elif dataframe:
-        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=dataframe).toDF()
-        print(f'Dataframe {table_name} created successfully')
+        df = glueContext.create_dynamic_frame.from_catalog(database=database_name, table_name=table_name, transformation_ctx=dataframe, **options).toDF()
+        print(f'Dataframe {dataframe} created successfully')
         return df
-    raise ValueError("Must specify either view or dataframe")
+    else:
+        raise ValueError("Must specify either view or dataframe")
 
+# 12. get_business_days
 def get_business_days(country: str, start_date: str, end_date: str) -> list:
     """
     Returns a list of business days between start_date and end_date for a given country.
@@ -773,15 +705,12 @@ def get_business_days(country: str, start_date: str, end_date: str) -> list:
 
     # Get the country's holidays
     country_holidays = holidays.CountryHoliday(country)
-
-    # Filter out weekends and holidays
     business_days = [day for day in all_days if day.weekday() < 5 and day not in country_holidays]
-
-    # Convert business days to string format
     business_days_str = [day.strftime('%Y-%m-%d') for day in business_days]
 
     return business_days_str
 
+# 13. pack_libs
 def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requirements.txt'):
     '''
     Description: I've developed this function to automate the packing of python libraries and store them in S3.
@@ -824,6 +753,7 @@ def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requ
         print(f"An error occurred: {e}")
         return str(e)
 
+# 14. aws_sso_login
 def aws_sso_login(profile_name:str,
                 sso_start_url:str, 
                 sso_region:str, 
@@ -857,22 +787,17 @@ def aws_sso_login(profile_name:str,
     subprocess.run(login_command, check=True)
     print(f"Logged in to AWS account {account_id} with profile {profile_name}.")
 
-
+# 15. list_s3_size
 def list_s3_size(s3_path: str, showdir: bool = False):
     '''
     Description: List the size of files in an S3 bucket.
-
     Args:
-    s3_path: path of the S3 bucket ex: s3://bucket/prefix
-
+        s3_path: Path of the S3 bucket ex: s3://bucket/prefix.
+        showdir: If True, shows the size of each individual file.
     How to use:
     list_size(s3_path='s3://bucket/prefix')
     '''
-    if not s3_path.startswith('s3://'):
-        raise ValueError('S3 path is either invalid or wrong s3 path')
-    
-    bucket = s3_path[5:].split('/')[0]
-    prefix = s3_path.split(bucket, 1)[1].lstrip('/')
+    bucket, prefix = get_bucket(s3_path)
     
     s3 = boto3.client('s3')
     paginator = s3.get_paginator('list_objects_v2')
@@ -885,47 +810,20 @@ def list_s3_size(s3_path: str, showdir: bool = False):
         if 'Contents' in page:
             for obj in page['Contents']:
                 total_size += obj['Size']
-                total_objects +=1
-                if total_size > 0:
-                    if showdir:
-                        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-                        i = int(math.floor(math.log(total_size, 1024)))
-                        p = math.pow(1024, i)
-                        s = round(total_size / p, 2)
-                        print(f"{obj['Key']}: {s}{size_name[i]}")
-        
-    if total_size > 0:
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = int(math.floor(math.log(total_size, 1024)))
-        p = math.pow(1024, i)
-        s = round(total_size / p, 2)
-        size_converted = f'{s}{size_name[i]}'
-    else:
-        size_converted = '0B'
-    
-    print(f'Total size: {size_converted}\nTotal Objects: {total_objects - 1}')
+                total_objects += 1
+                if showdir:
+                    size_str = convert_bytes(obj['Size'])
+                    print(f"{obj['Key']}: {size_str}")
 
+    size_converted = convert_bytes(total_size)
+    print(f'Total size: {size_converted}\nTotal Objects: {total_objects}')
 
-def run_athena_query(query: str, workgroup: str = 'primary'):
-    athena = boto3.client('athena', region_name='sa-east-1')
-    response = athena.start_query_execution(QueryString=query, WorkGroup=workgroup)
-    while True:
-        query_status = athena.get_query_execution(QueryExecutionId=response['QueryExecutionId'])
-        state = query_status['QueryExecution']['Status']['State']
-        if state in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
-            break
-        sleep(5)
-
-    if state != 'SUCCEEDED':
-        raise Exception(f'Query failed: {response}')
-    return response['QueryExecutionId']
-
+# 16. save_athena_results
 def save_athena_results(query,
                         s3_path: str,
                         s3_athena_output: str,
                         writemode: str = 'append',
                         workgroup: str = 'primary',
-                        to_sas: bool = False,
                         workspace: str = None,
                         table_name: str = None,
                         partition: list = None,
@@ -940,10 +838,8 @@ def save_athena_results(query,
         # Collect the output from S3
         output_path = f'{s3_athena_output}/{query_id}'
         table = spark.read.format('csv').option('header', 'true').load(output_path)
-        
-        if to_sas and not workspace and not table_name and not partition:
-            table.coalesce(1).write.mode(writemode).option('header', 'true').option('quote', '"').option('delimiter', '|').csv(s3_path)
-        elif partition and not workspace and not table_name:
+
+        if partition and not workspace and not table_name:
             table.write.mode(writemode).partitionBy(partition).parquet(s3_path)
         elif not partition and not workspace and not table_name:
             table.write.mode(writemode).parquet(s3_path)
@@ -956,3 +852,19 @@ def save_athena_results(query,
 
     except Exception as e:
         return f'Failed to save results: {str(e)}'
+    
+# 17. log
+def log(text: str, glueContext:GlueContext=None):
+    """
+    Log a message using the provided Glue context.
+    If no Glue context is provided, create one using the default Spark context.
+
+    Args:
+    text (str): The message to log.
+    glueContext (GlueContext, optional): The Glue context to use for logging and monitoring.
+    """
+    if glueContext is None:
+        glueContext = GlueContext(SparkContext.getOrCreate())
+    
+    logger = glueContext.get_logger()
+    logger.info(f"{'*' * 35} {text} {'*' * 35}")
