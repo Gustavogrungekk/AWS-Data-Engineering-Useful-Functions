@@ -341,14 +341,7 @@ def s3_contains(s3_path: str) -> bool:
     - ValueError: If the S3 path is invalid.
     '''
 
-    if not s3_path.startswith('s3://'):
-        raise ValueError(f'S3 path is invalid: {s3_path}')
-
-    # Extract bucket and prefix from the S3 path
-    parts = s3_path[5:].split('/', 1)
-    bucket = parts[0]
-    prefix = parts[1] if len(parts) > 1 else ''
-    
+    bucket, prefix = get_bucket(s3_path)
     s3 = boto3.client('s3')
 
     try:
