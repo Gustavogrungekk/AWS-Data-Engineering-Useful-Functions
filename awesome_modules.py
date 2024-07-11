@@ -987,16 +987,3 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     last_p = last_partition.replace(delimiter, " and ")
 
     return last_p
-
-    def extract_numeric_value(partition_key_value):
-        return int(partition_key_value.split('=')[1])
-
-    # Function to compare partitions based on year, month, day
-    def compare_partitions(partition):
-        year = extract_numeric_value(partition.split('/')[0])
-        month = extract_numeric_value(partition.split('/')[1])
-        day = extract_numeric_value(partition.split('/')[2])
-        return (year, month, day)
-
-    # Get the latest partition by sorting based on numeric values
-    latest_partition = max(partitions, key=compare_partitions)
