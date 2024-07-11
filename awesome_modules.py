@@ -958,32 +958,19 @@ def copy_redshift(s3_path: str, schema:str, redshift_table:str, writemode:str='a
     conn.close()
 
 # 19. get_partition
-def get_partition(table: str, partition_keys: list = None, delimiter: str = '/', spark=None):
+def get_partition(table: str, delimiter: str = '/', spark=None):
     '''
     Description: This function fetches the last partition of a table.
-
     Args:
         table: Table name
-        partition_keys: List of partition keys
         delimiter: Delimiter used in partition keys
+        spark: Existing Spark session (optional)
 
     Example: 
-        get_partition(table='my_table', partition_keys=['year', 'month', 'day'])
+        get_partition(table='my_table')
     '''
-    # Possible partitions dictionary
-    possible_partitions = {
-        'year, month, day': 'year=(\\d+)/month=(\\d+)/day=(\\d+)',
-        'year, month': 'year=(\\d+)/month=(\\d+)',
-        'anomesdia': 'anomesdia=(\\d+)',
-        'ano, mes, dia': 'ano=(\\d+)/mes=(\\d+)/dia=(\\d+)',
-        'ano, mes': 'ano=(\\d+)/mes=(\\d+)',
-    }
-
-    # Use default partition keys if none are provided
-    if partition_keys is None:
-        partition_keys = ['year', 'month', 'day']
-
-    # Create a SparkSession in case none is provided
+    
+    # Create a SparkSession if none is provided
     if not spark:
         spark = SparkSession.builder.appName("get_partitions").getOrCreate()
 
@@ -995,14 +982,8 @@ def get_partition(table: str, partition_keys: list = None, delimiter: str = '/',
 
     # Get the last partition
     last_partition = sorted(partitions)[-1]
-    last_p = last_partition
-    pattern_key = ', '.join(partition_keys)
-    pattern = possible_partitions.get(pattern_key, None)
 
-    if pattern:
-        # Search for the dynamic partition pattern
-        match = re.search(pattern, last_partition)
-        if match:
-            last_p = last_partition.replace(delimiter, " and ")
+    # Replace delimiter with " and " in the partition string
+    last_p = last_partition.replace(delimiter, " and ")
 
     return last_p
