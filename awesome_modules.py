@@ -988,18 +988,18 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
 
     return last_p
 
-    def parse_partition(partition):
-        # Split partition string by delimiter
-        parts = partition.split(delimiter)
-        # Normalize each key-value pair
-        parts_normalized = []
-        for part in parts:
-            key, value = part.split('=')
-            # Convert value to integer if possible, otherwise leave as string
-            try:
-                value_normalized = int(value)
-            except ValueError:
-                value_normalized = value
-            parts_normalized.append(f"{key}={value_normalized}")
-        # Join normalized parts back into a partition string
-        return delimiter.join(parts_normalized)
+def parse_partition(partition):
+    # Split partition string by delimiter
+    parts = partition.split(delimiter)
+    # Normalize each key-value pair
+    parts_normalized = []
+    for part in parts:
+        key, value = part.split('=')
+        # Convert value to integer if possible, otherwise leave as string
+        try:
+            value_normalized = int(value)
+        except ValueError:
+            value_normalized = value
+        parts_normalized.append(f"{key}={value_normalized}")
+    # Join normalized parts back into a partition string
+    return delimiter.join(parts_normalized)
