@@ -988,18 +988,15 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
 
     return last_p
 
-def parse_partition(partition):
-    # Split partition string by delimiter
-    parts = partition.split(delimiter)
-    # Normalize each key-value pair
-    parts_normalized = []
-    for part in parts:
-        key, value = part.split('=')
-        # Convert value to integer if possible, otherwise leave as string
-        try:
-            value_normalized = int(value)
-        except ValueError:
-            value_normalized = value
-        parts_normalized.append(f"{key}={value_normalized}")
-    # Join normalized parts back into a partition string
-    return delimiter.join(parts_normalized)
+    def extract_numeric_value(partition_key_value):
+        return int(partition_key_value.split('=')[1])
+
+    # Function to compare partitions based on year, month, day
+    def compare_partitions(partition):
+        year = extract_numeric_value(partition.split('/')[0])
+        month = extract_numeric_value(partition.split('/')[1])
+        day = extract_numeric_value(partition.split('/')[2])
+        return (year, month, day)
+
+    # Get the latest partition by sorting based on numeric values
+    latest_partition = max(partitions, key=compare_partitions)
