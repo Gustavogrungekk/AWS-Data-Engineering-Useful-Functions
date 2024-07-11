@@ -988,10 +988,8 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
 
     return last_p
 
-
-
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, expr
+from pyspark.sql.functions import expr
 
 def get_partition(table: str, delimiter: str = '/', spark=None):
     '''
@@ -1030,11 +1028,10 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
         # Join normalized parts back into a partition string
         return delimiter.join(parts_normalized)
 
-    # Normalize partition values and get the latest partition
-    latest_partition = (spark.read.option("delimiter", delimiter)
-                        .csv(spark.sparkContext.parallelize(partitions), schema="partition string")
-                        .withColumn("partition_normalized", expr("substring(`partition string`, 13)"))
-                        .orderBy(expr("partition_normalized"))
-                        .first()["partition string"])
+    # Get the last partition string
+    latest_partition = sorted(partitions)[-1]
 
-    return latest_partition
+    # Parse and normalize the latest partition string
+    latest_partition_normalized = parse_partition(latest_partition)
+
+    return latest_partition_normalized
