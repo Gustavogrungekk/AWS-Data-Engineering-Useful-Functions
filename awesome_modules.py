@@ -25,6 +25,7 @@
 # 16. save_athena_results: This function saves the results of an Athena query to an S3 path.
 # 17. log: This function logs a message using the provided Glue context.
 # 18. copy_redshift: This function copies data from S3 to Redshift.
+# 19. get_partition: This function fetches the last partition of a table.
 # ===================================================================================================================#
 # Auxiliary Functions
 # 1. convert_bytes: This function convert bytes into human readable format
@@ -955,3 +956,53 @@ def copy_redshift(s3_path: str, schema:str, redshift_table:str, writemode:str='a
     cursor.execute(query_copy_parquet)
     conn.commit()
     conn.close()
+
+# 19. get_partition
+def get_partition(table: str, partition_keys: list = None, delimiter: str = '/', spark=None):
+    '''
+    Description: This function fetches the last partition of a table.
+
+    Args:
+        table: Table name
+        partition_keys: List of partition keys
+        delimiter: Delimiter used in partition keys
+
+    Example: 
+        get_partition(table='my_table', partition_keys=['year', 'month', 'day'])
+    '''
+    # Possible partitions dictionary
+    possible_partitions = {
+        'year, month, day': 'year=(\\d+)/month=(\\d+)/day=(\\d+)',
+        'year, month': 'year=(\\d+)/month=(\\d+)',
+        'anomesdia': 'anomesdia=(\\d+)',
+        'ano, mes, dia': 'ano=(\\d+)/mes=(\\d+)/dia=(\\d+)',
+        'ano, mes': 'ano=(\\d+)/mes=(\\d+)',
+    }
+
+    # Use default partition keys if none are provided
+    if partition_keys is None:
+        partition_keys = ['year', 'month', 'day']
+
+    # Create a SparkSession in case none is provided
+    if not spark:
+        spark = SparkSession.builder.appName("get_partitions").getOrCreate()
+
+    # Fetch partitions
+    partitions = spark.sql(f"SHOW PARTITIONS {table}").rdd.flatMap(lambda x: x).collect()
+
+    if not partitions:
+        return None
+
+    # Get the last partition
+    last_partition = sorted(partitions)[-1]
+    last_p = last_partition
+    pattern_key = ', '.join(partition_keys)
+    pattern = possible_partitions.get(pattern_key, None)
+
+    if pattern:
+        # Search for the dynamic partition pattern
+        match = re.search(pattern, last_partition)
+        if match:
+            last_p = last_partition.replace(delimiter, " and ")
+
+    return last_p
