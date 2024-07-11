@@ -24,6 +24,7 @@
 # 15. list_s3_size: This function lists the size of files in an S3 bucket.
 # 16. save_athena_results: This function saves the results of an Athena query to an S3 path.
 # 17. log: This function logs a message using the provided Glue context.
+# 18. copy_redshift: This function copies data from S3 to Redshift.
 # ===================================================================================================================#
 # Auxiliary Functions
 # 1. convert_bytes: This function convert bytes into human readable format
@@ -49,6 +50,7 @@ from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 import boto3
 import os
+import psycopg2
 import repartipy
 from awsglue.context import GlueContext
 from pyspark.context import SparkContext
@@ -861,3 +863,95 @@ def log(text: str, glueContext:GlueContext=None):
     
     logger = glueContext.get_logger()
     logger.info(f"{'*' * 35} {text} {'*' * 35}")
+
+# 18. copy_redshift a very old function of mine back when I was just an assistant an old but reliable function.
+def copy_redshift(s3_path: str, schema:str, redshift_table:str, writemode:str='append', spark=None):
+    """
+    Description:
+    Copies data from S3 to Redshift. This function reads the data from S3, prepares the metadata, 
+    and loads the data into a specified Redshift table. It handles creating the table if it doesn't exist.
+
+    Args:
+    s3_path (str): Full path to your data (example: 's3://gold-datalake/data/*/*')
+    schema (str): The schema where you want to copy the data to
+    redshift_table (str): The name of the table to create/copy data to
+    writemode (str): Writing mode - 'overwrite' or 'append'
+
+    Usage Example:
+    copy_redshift(s3_path='s3://gold-datalake/data/*/*',
+                  schema='public',
+                  redshift_table='copied_table_test',
+                  writemode='append')
+    """
+    
+    redshift_table = f'{schema}.{redshift_table}'.lower()
+
+    # Getting the credentials 
+    if spark is None:
+        spark = SparkSession.builder.appName('copy_redshift').getOrCreate()
+
+    red_path = 's3://your-bucket/credentials/redshift_credentials_example.csv'
+    cred = spark.read.options(header=True, delimiter=';').csv(red_path)
+
+    credencial = {}
+    for field in cred.select('field').collect():
+        credencial[f'{field[0]}'] = cred.filter(col('field') == f'{field[0]}').select('key').collect()[0][0]
+
+    redshift_host = credencial['host']
+    redshift_db = 'gold-datalake'
+    redshift_user = credencial['user']
+    redshift_password = credencial['password']
+    redshift_iam_role = credencial['iam']
+    out_query = credencial['query_output']
+    redshift_port = 5439
+
+    url = f"jdbc:redshift://{redshift_host}:{redshift_port}/{redshift_db}?user={redshift_user}&password={redshift_password}"
+    
+    # Uploading the metadata to Redshift.
+    LOCATION = s3_path
+    df = spark.read.format('parquet').load(LOCATION)
+    
+    # Creating a new column to upload the metadata/schema.
+    df = df.filter('0=1')
+    
+    # Establishing a connection with the DB.
+    conn = psycopg2.connect(
+        dbname=redshift_db,
+        user=redshift_user,
+        password=redshift_password,
+        host=redshift_host,
+        port=redshift_port
+    )
+    cursor = conn.cursor()
+    
+    # Trying to truncate the existing table    
+    try:
+        query_truncate_table = f"TRUNCATE {redshift_table}"
+        cursor.execute(query_truncate_table)
+        conn.commit()
+    except Exception as e:
+        conn.rollback() # In case the table does not exist and cannot be truncated, we will create it.
+        df.write\
+           .format("jdbc")\
+           .option("url", url)\
+           .option("dbtable", redshift_table)\
+           .option("tempdir", out_query)\
+           .option("aws_iam_role", redshift_iam_role)\
+           .mode(writemode)\
+           .save()
+
+    # Adapting the string for copy command.
+    copy_format = r'/?(?:year=\d{4}/month=\d{2}|\d{4}/\d{2}|\*/\*|\*)/?'
+    s3_path = re.sub(copy_format, '/', s3_path)
+
+    query_copy_parquet = f"""
+        COPY {redshift_table}
+        FROM '{s3_path}'
+        IAM_ROLE '{redshift_iam_role}'
+        ACCEPTINVCHARS
+        PARQUET;
+    """
+    # Copy data from Parquet files in S3 to Redshift Commit and close the connection.
+    cursor.execute(query_copy_parquet)
+    conn.commit()
+    conn.close()
