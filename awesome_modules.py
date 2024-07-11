@@ -987,3 +987,54 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     last_p = last_partition.replace(delimiter, " and ")
 
     return last_p
+
+
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, expr
+
+def get_partition(table: str, delimiter: str = '/', spark=None):
+    '''
+    Description: This function fetches the last partition of a table.
+    Args:
+        table: Table name
+        delimiter: Delimiter used in partition keys
+        spark: Existing Spark session (optional)
+
+    Returns:
+        - str: Last partition string
+
+    Example: 
+        get_partition(table='my_table')
+    '''
+    
+    # Create a SparkSession if none is provided
+    if not spark:
+        spark = SparkSession.builder.appName("get_partitions").getOrCreate()
+
+    # Fetch partitions
+    partitions = spark.sql(f"SHOW PARTITIONS {table}").rdd.flatMap(lambda x: x).collect()
+
+    if not partitions:
+        return None
+
+    # Define a function to parse and normalize partition keys
+    def parse_partition(partition):
+        # Split partition string by delimiter
+        parts = partition.split(delimiter)
+        # Normalize each key-value pair
+        parts_normalized = []
+        for part in parts:
+            key, value = part.split('=')
+            parts_normalized.append(f"{key}={int(value)}" if value.isdigit() else f"{key}={value}")
+        # Join normalized parts back into a partition string
+        return delimiter.join(parts_normalized)
+
+    # Normalize partition values and get the latest partition
+    latest_partition = (spark.read.option("delimiter", delimiter)
+                        .csv(spark.sparkContext.parallelize(partitions), schema="partition string")
+                        .withColumn("partition_normalized", expr("substring(`partition string`, 13)"))
+                        .orderBy(expr("partition_normalized"))
+                        .first()["partition string"])
+
+    return latest_partition
