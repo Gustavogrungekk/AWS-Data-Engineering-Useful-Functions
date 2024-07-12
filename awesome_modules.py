@@ -73,7 +73,7 @@ def convert_bytes(byte: int):
     Args:
         bytez: number of bytes
     How to use:
-    convert_bytes(bytez=398345)
+        convert_bytes(bytez=398345)
     '''
     if byte == 0:
         return '0B'
@@ -122,10 +122,10 @@ def clear_s3_bucket(bucket_name: str):
     This function will clear the specified S3 bucket
     
     Args:
-    bucket_name: name of the bucket to be cleared
+        bucket_name: name of the bucket to be cleared
 
     Example:
-    clear_s3_bucket('s3://bucket_name/dumps/athena-query-results/')
+        clear_s3_bucket('s3://bucket_name/dumps/athena-query-results/')
     '''
     bucket, prefix = get_bucket(bucket_name)
     s3 = boto3.resource('s3')
@@ -144,12 +144,12 @@ def s3_updown(s3_uri:str, local_path:str, method:str = 'download'):
     Must specify 'download' or 'upload'
 
     Args:
-    s3_uri: S3 path
-    local_path: Local path
-    method: 'download' or 'upload'
+        s3_uri: S3 path
+        local_path: Local path
+        method: 'download' or 'upload'
 
     How to use:
-    s3_updown(s3_uri, local_path, 'download')
+        s3_updown(s3_uri, local_path, 'download')
     '''
     bucket, prefix = get_bucket(s3_uri)
     if method == 'download':
@@ -170,20 +170,20 @@ def sync_s3_bucket(S3_uri: str, Output_location: str):
     Sync files from an S3 bucket to a local directory.
 
     Args:
-    S3_uri (str): S3 URI to sync from (e.g., 's3://my-bucket/my-prefix/').
-    Output_location (str): Local directory to sync to.
+        S3_uri (str): S3 URI to sync from (e.g., 's3://my-bucket/my-prefix/').
+        Output_location (str): Local directory to sync to.
 
     Returns:
-    str: Success message indicating all files have been downloaded.
+        str: Success message indicating all files have been downloaded.
 
     Raises:
-    ValueError: If the S3 URI is invalid.
-    Exception: If listing objects from the S3 bucket fails.
+        ValueError: If the S3 URI is invalid.
+        Exception: If listing objects from the S3 bucket fails.
     
     Example:
-    >>> result = sync_s3_bucket('s3://my-bucket/my-prefix/', '/local/output/path')
-    >>> print(result)
-    'All files downloaded successfully to /local/output/path.'
+        result = sync_s3_bucket('s3://my-bucket/my-prefix/', '/local/output/path')
+        print(result)
+        'All files downloaded successfully to /local/output/path.'
     """
     
     if not S3_uri.startswith('s3://'):
@@ -244,27 +244,27 @@ def cdp_to_s3(username: str,
     register it as a table in the AWS Glue Data Catalog.
 
     Args:
-    username (str): Username for JDBC authentication.
-    passkey (str): Password or key for JDBC authentication.
-    jdbc_url (str): JDBC connection URL to the Hive server.
-    query (str): SQL query to retrieve data from the Hive table.
-    s3_output (str): S3 path where the data will be written.
-    writemode (str): Write mode for the data transfer and table creation ('append', 'overwrite', etc.).
-    catalog_table (bool, optional): If True, registers the data as a table in the AWS Glue Data Catalog. Default is False.
-    schema_name (str, optional): Name of the schema in the Glue catalog where the table will be registered. Required if catalog_table is True.
-    table_name (str, optional): Name of the table to be registered in the Glue catalog. Required if catalog_table is True.
-    partitionby (str, optional): Column name(s) to partition the data by before writing to S3 and registering as a table.
-    optional_athena_path (str, optional): Custom path to use for the Athena table.
-    spark (SparkSession, optional): Existing SparkSession. If None, a new SparkSession will be created.
+        username (str): Username for JDBC authentication.
+        passkey (str): Password or key for JDBC authentication.
+        jdbc_url (str): JDBC connection URL to the Hive server.
+        query (str): SQL query to retrieve data from the Hive table.
+        s3_output (str): S3 path where the data will be written.
+        writemode (str): Write mode for the data transfer and table creation ('append', 'overwrite', etc.).
+        catalog_table (bool, optional): If True, registers the data as a table in the AWS Glue Data Catalog. Default is False.
+        schema_name (str, optional): Name of the schema in the Glue catalog where the table will be registered. Required if catalog_table is True.
+        table_name (str, optional): Name of the table to be registered in the Glue catalog. Required if catalog_table is True.
+        partitionby (str, optional): Column name(s) to partition the data by before writing to S3 and registering as a table.
+        optional_athena_path (str, optional): Custom path to use for the Athena table.
+        spark (SparkSession, optional): Existing SparkSession. If None, a new SparkSession will be created.
 
     Returns:
-    str: Success message if data transfer and optional table registration are successful, or error message if failed.
+        str: Success message if data transfer and optional table registration are successful, or error message if failed.
 
     Raises:
-    ValueError: If catalog_table is True but schema_name or table_name is not provided.
+        ValueError: If catalog_table is True but schema_name or table_name is not provided.
 
     Example:
-    >>> result = cdp_to_s3(username="your_username",
+        result = cdp_to_s3(username="your_username",
                            passkey="your_password",
                            jdbc_url="jdbc:hive2://your_hive_server:10000/default",
                            query="SELECT * FROM your_hive_table",
@@ -274,7 +274,7 @@ def cdp_to_s3(username: str,
                            schema_name="your_schema",
                            table_name="your_table",
                            partitionby="date_column")
-    >>> print(result)
+        print(result)
     'Data transferred successfully to s3://your-bucket/output-path/'
     """
     if spark is None:
@@ -338,13 +338,13 @@ def s3_contains(s3_path: str) -> bool:
     Description: Verifies if an S3 path exists.
 
     Args:
-    - s3_path (str): The S3 path to check.
+        s3_path (str): The S3 path to check.
 
     Returns:
-    - bool: True if the S3 path exists, False otherwise.
+        bool: True if the S3 path exists, False otherwise.
 
     Raises:
-    - ValueError: If the S3 path is invalid.
+        ValueError: If the S3 path is invalid.
     '''
 
     bucket, prefix = get_bucket(s3_path)
@@ -366,10 +366,10 @@ def try_date(date_str: str, format = '%Y-%m-%d'):
     Converts various date string formats to 'YYYY-MM-DD' format in Python datetime.date object.
 
     Args:
-    - date_str (str): Date string in various formats.
+        date_str (str): Date string in various formats.
 
     Returns:
-    - datetime.date: Python datetime.date object.
+        datetime.date: Python datetime.date object.
     """
 
     # List of possible date formats to try parsing
@@ -428,16 +428,16 @@ def clear_string(text: str, remove: set = None) -> str:
     Clears accentuations, special characters, emojis, etc. from the input text and removes specified characters.
 
     Args:
-    - text (str): Text that will be cleaned.
-    - remove (set, optional): A set containing the elements to be found and removed from the text. Defaults to an empty set.
+        text (str): Text that will be cleaned.
+        remove (set, optional): A set containing the elements to be found and removed from the text. Defaults to an empty set.
 
     Returns:
-    - str: The cleaned text.
+        str: The cleaned text.
 
     Usage Example:
-    >>> remove_set = {'#^$%@#^|][]'}
-    >>> clear_string('AAç#^$úcar Ca%@#^|][]nção', remove_set)
-    'Acucar Cancao'
+        remove_set = {'#^$%@#^|][]'}
+        clear_string('AAç#^$úcar Ca%@#^|][]nção', remove_set)
+        # Output: 'Acucar Cancao'
     """
     if text:
         # Normalize the string to separate base characters from their combining marks
@@ -464,11 +464,11 @@ def estimate_size(spark, df)-> str:
     Estimates the size of a DataFrame in a human-readable format using SI units.
 
     Parameters:
-    spark (SparkSession): The Spark session.
-    df (DataFrame): The DataFrame to estimate the size of.
+        spark (SparkSession): The Spark session.
+        df (DataFrame): The DataFrame to estimate the size of.
 
     Returns:
-    str: The estimated size of the DataFrame in a human-readable format.
+        str: The estimated size of the DataFrame in a human-readable format.
     """
     with repartipy.SizeEstimator(spark=spark, df=df) as se:
         df_size_in_bytes = se.estimate()
@@ -485,10 +485,10 @@ def success(s3_path:str=None):
     Send a _SUCCESS.txt file to the specified S3 path.
 
     Parameters:
-    s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
+        s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
     
     Returns:
-    str: Success message if the file is uploaded, or an error message if it fails.
+        str: Success message if the file is uploaded, or an error message if it fails.
     """
     # Extracting bucket name and prefix from the provided s3 path:
     bucket, prefix = get_bucket(s3_path)
@@ -506,10 +506,10 @@ def check_success(s3_path:str=None):
     Check if the _SUCCESS.txt file exists in the specified S3 path.
 
     Parameters:
-    s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
+        s3_path (string) - The S3 Path where the _SUCCESS File should be sent.
 
     Returns:
-    bool: True if the _SUCCESS.txt file exists, False if it doesn't.
+        bool: True if the _SUCCESS.txt file exists, False if it doesn't.
     """
     # Extracting bucket name and prefix from the provided s3 path:
     bucket, prefix = get_bucket(s3_path)
@@ -533,18 +533,18 @@ def create_update_table(database_name:str,
     If the table already exists, it will update it else it will create it in the aws glue catalog
 
     Args:
-    spark: spark session
-    database_name: name of the database where the table will be created
-    table_name: name of the table to be created
-    s3_path: s3 location where the table will be created
-    file_format: parquet or csv
-    region: region where the table will be created by default is us-east-1
+        spark: spark session
+        database_name: name of the database where the table will be created
+        table_name: name of the table to be created
+        s3_path: s3 location where the table will be created
+        file_format: parquet or csv
+        region: region where the table will be created by default is us-east-1
 
     returns:
-    A string with the success message
-    How to use:
-    spark = spark_session()
-    create_update_table(spark, database_name, table_name, s3_path, file_format)
+        A string with the success message
+        How to use:
+        spark = spark_session()
+        create_update_table(spark, database_name, table_name, s3_path, file_format)
     '''
 
     glue = boto3.client('glue', region_name=region)
@@ -615,14 +615,14 @@ def get_last_modified_date(s3_path, time_interval:int=None, region = 'us-east-1'
     This function will check for the lattest modfied date in the s3 bucket for objects
 
     Args:
-    s3_path: s3 location where the table will be created
-    time_interval: time interval in hours optional
-    region: region where the table will be created by default is us-east-1
+        s3_path: s3 location where the table will be created
+        time_interval: time interval in hours optional
+        region: region where the table will be created by default is us-east-1
 
     returns:
-    A string with the last modified date
-    How to use:
-    get_last_modified_date(s3_path)
+        A string with the last modified date
+        How to use:
+        get_last_modified_date(s3_path)
     '''
 
     bucket, key = get_bucket(s3_path)
@@ -644,19 +644,19 @@ def get_table(database_name: str, table_name: str, view: str = None, dataframe: 
     This function will create a view or a spark dataframe based on AWS Glue create_dynamic_frame.from_catalog function
 
     Args:
-    spark (SparkSession): Spark session
-    database_name (str): Name of the database where the table will be created
-    table_name (str): Name of the table to be created
-    view (str): Name of the view to create
-    dataframe (str): Name of the dataframe to create
-    options (dict): Options for creating the dynamic frame
-    region (str): AWS region
+        spark (SparkSession): Spark session
+        database_name (str): Name of the database where the table will be created
+        table_name (str): Name of the table to be created
+        view (str): Name of the view to create
+        dataframe (str): Name of the dataframe to create
+        options (dict): Options for creating the dynamic frame
+        region (str): AWS region
 
     Returns:
-    A view or a spark dataframe
+        A view or a spark dataframe
 
     How to use:
-    get_table(database_name='my_database', table_name='my_table', view='my_view')
+        get_table(database_name='my_database', table_name='my_table', view='my_view')
     '''
 
     if spark is None:
@@ -686,15 +686,15 @@ def get_business_days(country: str, start_date: str, end_date: str) -> list:
     Returns a list of business days between start_date and end_date for a given country.
 
     Parameters:
-    - country (str): The country code (e.g., 'US' for the United States, 'UK' for the United Kingdom, 'BR' for Brazil).
-    - start_date (str): The start date in 'YYYY-MM-DD' format.
-    - end_date (str): The end date in 'YYYY-MM-DD' format.
+        country (str): The country code (e.g., 'US' for the United States, 'UK' for the United Kingdom, 'BR' for Brazil).
+        start_date (str): The start date in 'YYYY-MM-DD' format.
+        end_date (str): The end date in 'YYYY-MM-DD' format.
 
     Returns:
-    - list: A list of business days (in 'YYYY-MM-DD' format) between the given dates for the specified country.
+        list: A list of business days (in 'YYYY-MM-DD' format) between the given dates for the specified country.
 
     Example:
-    get_business_days('BR', '2024-01-01', '2024-07-31')
+        get_business_days('BR', '2024-01-01', '2024-07-31')
     """
     
     # Convert start and end dates to datetime
@@ -716,13 +716,13 @@ def pack_libs(libname: str, format: str, s3_path: str, requirements: str = 'requ
     So you can use it whenever you want.
 
     Args:
-    libname: name of the library
-    format: format of the library ex: zip
-    s3_path: path of the library in S3 ex: s3://bucket/prefix
-    requirements: name of the requirements file ex: requirements.txt make sure to store it in the same folder as the library containing the libraries you want to pack.
+        libname: name of the library
+        format: format of the library ex: zip
+        s3_path: path of the library in S3 ex: s3://bucket/prefix
+        requirements: name of the requirements file ex: requirements.txt make sure to store it in the same folder as the library containing the libraries you want to pack.
 
     How to use:
-    pack_libs(libname='libs', format='zip', s3_path='s3://gustavogrungekk/libs/')
+        pack_libs(libname='libs', format='zip', s3_path='s3://gustavogrungekk/libs/')
     '''
     import boto3
     import subprocess
@@ -761,17 +761,17 @@ def aws_sso_login(profile_name:str,
     import subprocess
 
     '''
-    Automate the AWS SSO login process.
+    Descriptino: Automate the AWS SSO login process.
 
     Args:
-    profile_name: Name of the AWS CLI profile.
-    sso_start_url: AWS SSO start URL.
-    sso_region: AWS SSO region.
-    account_id: AWS account ID.
-    role_name: AWS IAM role name.
+        profile_name: Name of the AWS CLI profile.
+        sso_start_url: AWS SSO start URL.
+        sso_region: AWS SSO region.
+        account_id: AWS account ID.
+        role_name: AWS IAM role name.
 
     How to use:
-    aws_sso_login(profile_name='default', sso_start_url='https://my-sso-portal.awsapps.com/start', sso_region='us-west-2', account_id='123456789012', role_name='MyRole')
+        aws_sso_login(profile_name='default', sso_start_url='https://my-sso-portal.awsapps.com/start', sso_region='us-west-2', account_id='123456789012', role_name='MyRole')
     '''
     configure_sso_command = [
         'aws', 'configure', 'set', f'profile.{profile_name}.sso_start_url', sso_start_url,
@@ -794,7 +794,7 @@ def list_s3_size(s3_path: str, showdir: bool = False):
         s3_path: Path of the S3 bucket ex: s3://bucket/prefix.
         showdir: If True, shows the size of each individual file.
     How to use:
-    list_size(s3_path='s3://bucket/prefix')
+        list_size(s3_path='s3://bucket/prefix')
     '''
     bucket, prefix = get_bucket(s3_path)
     
@@ -855,12 +855,12 @@ def save_athena_results(query,
 # 17. log
 def log(text: str, glueContext:GlueContext=None):
     """
-    Log a message using the provided Glue context.
+    Description: Log a message using the provided Glue context.
     If no Glue context is provided, create one using the default Spark context.
 
     Args:
-    text (str): The message to log.
-    glueContext (GlueContext, optional): The Glue context to use for logging and monitoring.
+        text (str): The message to log.
+        glueContext (GlueContext, optional): The Glue context to use for logging and monitoring.
     """
     if glueContext is None:
         glueContext = GlueContext(SparkContext.getOrCreate())
@@ -1179,8 +1179,8 @@ def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
                     s3.copy_object(
                         Bucket=bucket_name,
                         CopySource={'Bucket': bucket_name, 'Key': key, 'VersionId': version_id},
-                        Key=key
-                    )
+                        Key=key)
+                    
                     print(f"Restored {key} to its latest non-deleted version (Version ID: {version_id}).")
                 else:
                     print(f"No non-deleted version found for {key}")
