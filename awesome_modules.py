@@ -203,11 +203,9 @@ def sync_s3_bucket(S3_uri: str, Output_location: str):
             for obj in page['Contents']:
                 key = obj['Key']
                 
-                # Construct the local filename
                 local_filename = os.path.join(Output_location, key[len(prefix):])
                 local_dir = os.path.dirname(local_filename)
                 
-                # Ensure local directory structure exists
                 if not os.path.exists(local_dir):
                     try:
                         os.makedirs(local_dir)
