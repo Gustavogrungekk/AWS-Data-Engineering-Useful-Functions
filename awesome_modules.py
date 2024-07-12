@@ -26,6 +26,7 @@
 # 17. log: This function logs a message using the provided Glue context.
 # 18. copy_redshift: This function copies data from S3 to Redshift.
 # 19. get_partition: This function fetches the last partition of a table.
+# 20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
 # ===================================================================================================================#
 # Auxiliary Functions
 # 1. convert_bytes: This function convert bytes into human readable format
@@ -987,3 +988,96 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     last_p = last_partition.replace(delimiter, " and ")
 
     return last_p
+
+# 20. job_report
+def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31):
+    """
+    Description:
+    Generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
+    Marks jobs as inactive if they haven't run within the specified number of days.
+
+    Args:
+    jobnames (list): List of Glue job names to report on.
+    region_name (str): AWS region where the Glue jobs are located (default is 'sa-east-1').
+    inactive_days (int): Number of days to check for job inactivity (default is 31).
+
+    Returns:
+    pd.DataFrame: A DataFrame containing the report of the specified Glue jobs.
+
+    Example:
+    job_report(['guinea_pig', 'guinea_pig_2'], region_name='sa-east-1', inactive_days=31)
+    """
+    
+    glue = boto3.client('glue', region_name=region_name)
+    job_details = []
+    current_time = (datetime.today() - timedelta(hours=3))
+
+    for jobname in jobnames:
+        try:
+            # Get the job details
+            job_details_response = glue.get_job(JobName=jobname)
+            job_definition = job_details_response['Job']
+            timeout = job_definition.get('Timeout', 'N/A')
+            glue_version = job_definition.get('GlueVersion', 'N/A')
+            triggers_response = glue.get_triggers(DependentJobName=jobname)
+            triggers = triggers_response.get('Triggers', [])
+            trigger_name = triggers[0]['Name'] if triggers else 'N/A'
+
+            # Get the job run history
+            response = glue.get_job_runs(JobName=jobname)
+            job_runs = response['JobRuns']
+            
+            for run in job_runs:
+                start_time = run['StartedOn']
+                end_time = run.get('CompletedOn', None)
+                job_state = run['JobRunState']
+                
+                # Check if the job is active based on the given inactive_days period
+                if (current_time - start_time.replace(tzinfo=None)) <= timedelta(days=inactive_days):
+                    active = True
+                else:
+                    active = False
+                
+                # Determine worker type and DPU capacity
+                worker_type = run.get('WorkerType', 'N/A')
+                if worker_type == 'Standard':
+                    worker_type = 'G.1X'
+                elif worker_type == 'G.1X':
+                    worker_type = 'G.1X'
+                elif worker_type == 'G.2X':
+                    worker_type = 'G.2X'
+                elif worker_type == 'PythonShell':
+                    worker_type = 'Python Shell'
+                
+                dpu = run.get('AllocatedCapacity', 'N/A')
+                
+                # Define the job details and layout
+                job_detail = {
+                    'run_date': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'created_at': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'glue_job_name': jobname,
+                    'job_type': run.get('JobType', 'N/A'),
+                    'start_time': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else 'N/A',
+                    'glue_job_status': job_state,
+                    'error_message': run.get('ErrorMessage', 'N/A'),
+                    'job_id': run['Id'],
+                    'active': active,
+                    'worker_type': worker_type,
+                    'dpu': dpu,
+                    'runtime': (end_time - start_time).total_seconds() if end_time else 'N/A',
+                    'reference_date': current_time.strftime('%Y-%m-%d'),
+                    'trigger_name': trigger_name,
+                    'timeout': timeout,
+                    'glue_version': glue_version
+                    }
+                
+                job_details.append(job_detail)
+        
+        except Exception as e:
+            print(f"Error getting details for job {jobname}: {e}")
+    
+    # Create a Pandas DataFrame
+    job_report_df = pd.DataFrame(job_details)
+    
+    return job_report_df
