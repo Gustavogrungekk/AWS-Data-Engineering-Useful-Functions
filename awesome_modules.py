@@ -999,19 +999,38 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
     Marks jobs as inactive if they haven't run within the specified number of days.
 
     Args:
-    jobnames (list): List of Glue job names to report on.
-    region_name (str): AWS region where the Glue jobs are located (default is 'sa-east-1').
-    inactive_days (int): Number of days to check for job inactivity (default is 31).
-    job_iterval (int): Number of minutes between job runs (default is 12).
+        jobnames (list): List of Glue job names to report on.
+        region_name (str): AWS region where the Glue jobs are located (default is 'sa-east-1').
+        inactive_days (int): Number of days to check for job inactivity (default is 31).
+        job_iterval (int): Number of minutes between job runs (default is 12).
 
     Returns:
-    pd.DataFrame: A DataFrame containing the report of the specified Glue jobs.
+        pd.DataFrame: A DataFrame containing the report of the specified Glue jobs.
 
     Example:
-    job_report(['guinea_pig', 'guinea_pig_2'], region_name='sa-east-1', inactive_days=31)
+        job_report(['guinea_pig', 'guinea_pig_2'], region_name='sa-east-1', inactive_days=31)
 
     Tips:
-    You can create a function that filters the job names based on your needs like a tag=smth or job type.
+        You can create a function that filters the job names based on your needs like a tag=smth or job type.
+
+    Dictionary of Glue job statuses:
+    run_date: The start time of the job run formatted as '%Y-%m-%d %H:%M:%S'.
+    created_at: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
+    glue_job_name: The name of the Glue job being reported on.
+    job_type: The type of Glue job ('N/A' if not specified).
+    start_time: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
+    end_time: The adjusted end time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S' if available, otherwise 'N/A'.
+    glue_job_status: The current state of the job run ('SUCCEEDED', 'FAILED', etc.).
+    error_message: Any error message associated with the job run ('N/A' if no error).
+    job_id: The ID of the job run.
+    active: Boolean indicating if the job is currently active based on inactive_days.
+    worker_type: Type of worker used ('G.1X', 'G.2X', 'Python Shell', 'N/A' if not specified).
+    dpu: Allocated processing units for the job run ('N/A' if not specified).
+    runtime: Execution time of the job run formatted as days, hours, minutes, seconds.
+    trigger_name: The name of the trigger associated with the job ('N/A' if no trigger).
+    timeout: The timeout setting for the job ('N/A' if not specified).
+    glue_version: The version of AWS Glue used ('N/A' if not specified).
+    reference_date: The current date formatted as '%Y-%m-%d'.
     """
     
     glue = boto3.client('glue', region_name=region_name)
