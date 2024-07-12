@@ -27,6 +27,7 @@
 # 18. copy_redshift: This function copies data from S3 to Redshift.
 # 19. get_partition: This function fetches the last partition of a table.
 # 20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
+# 21. restore_deleted_objects_S3: This function restores all deleted objects in an S3 bucket with versioning enabled.
 # ===================================================================================================================#
 # Auxiliary Functions
 # 1. convert_bytes: This function convert bytes into human readable format
@@ -48,8 +49,9 @@ import unicodedata
 import holidays
 import math
 import csv
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from dateutil.relativedelta import relativedelta
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 import boto3
 import os
 import psycopg2
@@ -990,7 +992,6 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     return last_p
 
 # 20. job_report
-
 def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31, job_iterval:int=12):
     """
     Description:
@@ -1106,3 +1107,70 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
     job_report_df = pd.DataFrame(job_details)
     
     return job_report_df
+
+# 21. restore_deleted_objects_S3
+def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
+    """
+    Restore all deleted objects in an S3 bucket with versioning enabled.
+    If bucket versioning is not enabled... damn dude.
+
+    Args:
+        bucket_name (str): The name of the S3 bucket.
+        prefix (str, optional): The prefix of the objects to restore. Defaults to ''.
+        time (int, optional): The amount of hours to search for deleted objects. Finds the objects deleted within the last `time` hours. Defaults to None.
+
+    How to use:
+        restore_deleted_objects_S3(bucket_name, prefix='', time=None)    
+
+    Tips:
+        - time is in hours. If you want to find the objects deleted within the last 24 hours, set time = 24.
+        - prefix is the prefix of the objects to restore. If you want to restore all objects in the bucket, set prefix = ''.
+    """
+    s3 = boto3.client('s3')
+    current_time = datetime.now(timezone.utc)
+
+    try:
+        paginator = s3.get_paginator('list_object_versions')
+        page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+        for page in page_iterator:
+            deleted_objects = page.get('DeleteMarkers', [])
+            versions = page.get('Versions', [])
+
+            for deleted_object in deleted_objects:
+                key = deleted_object['Key']
+                delete_marker_time = deleted_object['LastModified']
+                
+                if time is not None:
+                    time_delta = timedelta(hours=time)
+                    if current_time - delete_marker_time > time_delta:
+                        continue
+
+                # Find the latest version that is not a delete marker
+                latest_version = None
+                for version in versions:
+                    if version['Key'] == key and not version.get('IsDeleteMarker', False):
+                        latest_version = version
+                        break
+
+                if latest_version:
+                    version_id = latest_version['VersionId']
+                    
+                    # Copy the latest version back to the original key
+                    s3.copy_object(
+                        Bucket=bucket_name,
+                        CopySource={'Bucket': bucket_name, 'Key': key, 'VersionId': version_id},
+                        Key=key
+                    )
+                    print(f"Restored {key} to its latest non-deleted version (Version ID: {version_id}).")
+                else:
+                    print(f"No non-deleted version found for {key}")
+
+        print("All deleted objects have been processed.")
+    
+    except NoCredentialsError:
+        print("Error: No AWS credentials found. Please configure your AWS credentials.")
+    except PartialCredentialsError:
+        print("Error: Incomplete AWS credentials found. Please check your AWS credentials.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
