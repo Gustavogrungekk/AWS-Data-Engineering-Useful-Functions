@@ -990,7 +990,8 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     return last_p
 
 # 20. job_report
-def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31):
+
+def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31, job_iterval:int=12):
     """
     Description:
     Generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
@@ -1000,12 +1001,16 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31)
     jobnames (list): List of Glue job names to report on.
     region_name (str): AWS region where the Glue jobs are located (default is 'sa-east-1').
     inactive_days (int): Number of days to check for job inactivity (default is 31).
+    job_iterval (int): Number of minutes between job runs (default is 12).
 
     Returns:
     pd.DataFrame: A DataFrame containing the report of the specified Glue jobs.
 
     Example:
     job_report(['guinea_pig', 'guinea_pig_2'], region_name='sa-east-1', inactive_days=31)
+
+    Tips:
+    You can create a function that filters the job names based on your needs like a tag=smth or job type.
     """
     
     glue = boto3.client('glue', region_name=region_name)
@@ -1038,41 +1043,61 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31)
                 else:
                     active = False
                 
-                # Determine worker type and DPU capacity
-                worker_type = run.get('WorkerType', 'N/A')
-                if worker_type == 'Standard':
-                    worker_type = 'G.1X'
-                elif worker_type == 'G.1X':
-                    worker_type = 'G.1X'
-                elif worker_type == 'G.2X':
-                    worker_type = 'G.2X'
-                elif worker_type == 'PythonShell':
-                    worker_type = 'Python Shell'
-                
-                dpu = run.get('AllocatedCapacity', 'N/A')
-                
-                # Define the job details and layout
-                job_detail = {
-                    'run_date': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'created_at': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
-                    'glue_job_name': jobname,
-                    'job_type': run.get('JobType', 'N/A'),
-                    'start_time': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
-                    'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else 'N/A',
-                    'glue_job_status': job_state,
-                    'error_message': run.get('ErrorMessage', 'N/A'),
-                    'job_id': run['Id'],
-                    'active': active,
-                    'worker_type': worker_type,
-                    'dpu': dpu,
-                    'runtime': (end_time - start_time).total_seconds() if end_time else 'N/A',
-                    'reference_date': current_time.strftime('%Y-%m-%d'),
-                    'trigger_name': trigger_name,
-                    'timeout': timeout,
-                    'glue_version': glue_version
-                    }
-                
-                job_details.append(job_detail)
+                if (current_time - timedelta(hours=job_iterval) < start_time.replace(tzinfo=None)):
+
+                    # Determine worker type and DPU capacity
+                    worker_type = run.get('WorkerType', 'N/A')
+                    if worker_type == 'Standard':
+                        worker_type = 'G.1X'
+                    elif worker_type == 'G.1X':
+                        worker_type = 'G.1X'
+                    elif worker_type == 'G.2X':
+                        worker_type = 'G.2X'
+                    elif worker_type == 'PythonShell':
+                        worker_type = 'Python Shell'
+                    
+                    dpu = run.get('AllocatedCapacity', 'N/A')
+                    
+                    def normalize_seconds(seconds):
+                        if seconds < 0:
+                            raise ValueError("Seconds must be a non-negative integer.")
+
+                        days = seconds // (24 * 3600)
+                        hours = (seconds % (24 * 3600)) // 3600
+                        minutes = (seconds % 3600) // 60
+                        remaining_seconds = seconds % 60
+
+                        if days > 0:
+                            return f"{days} days, {hours} hours, {minutes} minutes, {remaining_seconds} seconds"
+                        elif hours > 0:
+                            return f"{hours} hours, {minutes} minutes, {remaining_seconds} seconds"
+                        elif minutes > 0:
+                            return f"{minutes} minutes, {remaining_seconds} seconds"
+                        else:
+                            return f"{remaining_seconds} seconds"
+                        
+                    # Define the job details and layout
+                    job_detail = {
+                        'run_date': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'created_at': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
+                        'glue_job_name': jobname,
+                        'job_type': run.get('JobType', 'N/A'),
+                        'start_time': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
+                        'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else 'N/A',
+                        'glue_job_status': job_state,
+                        'error_message': run.get('ErrorMessage', 'N/A'),
+                        'job_id': run['Id'],
+                        'active': active,
+                        'worker_type': worker_type,
+                        'dpu': dpu,
+                        'runtime': normalize_seconds(run.get('ExecutionTime', -1)),
+                        'reference_date': current_time.strftime('%Y-%m-%d'),
+                        'trigger_name': trigger_name,
+                        'timeout': timeout,
+                        'glue_version': glue_version
+                        }
+                    
+                    job_details.append(job_detail)
         
         except Exception as e:
             print(f"Error getting details for job {jobname}: {e}")
