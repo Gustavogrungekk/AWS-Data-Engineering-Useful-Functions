@@ -1092,10 +1092,10 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
                         'worker_type': worker_type,
                         'dpu': dpu,
                         'runtime': normalize_seconds(run.get('ExecutionTime', -1)),
-                        'reference_date': current_time.strftime('%Y-%m-%d'),
                         'trigger_name': trigger_name,
                         'timeout': timeout,
-                        'glue_version': glue_version
+                        'glue_version': glue_version,
+                        'reference_date': current_time.strftime('%Y-%m-%d')
                         }
                     
                     job_details.append(job_detail)
