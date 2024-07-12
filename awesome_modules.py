@@ -6,6 +6,7 @@
 # Date: 2024-06-19
 # Version: 1.0
 #===================================================================================================================#
+
 # INDEX:
 # 1. sync_s3_bucket: This function syncs files from an S3 bucket to a local directory.
 # 2. cdp_to_s3: This function transfers data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally registers it as a table in the AWS Glue Data Catalog.
@@ -29,6 +30,7 @@
 # 20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
 # 21. restore_deleted_objects_S3: This function restores all deleted objects in an S3 bucket with versioning enabled.
 # ===================================================================================================================#
+
 # Auxiliary Functions
 # 1. convert_bytes: This function convert bytes into human readable format
 # 2. get_bucket: This function get bucket name and prefix from s3 path given a full s3 uri path
