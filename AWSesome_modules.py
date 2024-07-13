@@ -52,6 +52,7 @@ import holidays
 import math
 import csv
 from datetime import datetime, timedelta, date, timezone
+from time import sleep
 from dateutil.relativedelta import relativedelta
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 import boto3
