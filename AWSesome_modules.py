@@ -1018,19 +1018,19 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
     run_date: The start time of the job run formatted as '%Y-%m-%d %H:%M:%S'.
     created_at: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
     glue_job_name: The name of the Glue job being reported on.
-    job_type: The type of Glue job ('N/A' if not specified).
+    job_type: The type of Glue job (None if not specified).
     start_time: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
-    end_time: The adjusted end time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S' if available, otherwise 'N/A'.
+    end_time: The adjusted end time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S' if available, otherwise None.
     glue_job_status: The current state of the job run ('SUCCEEDED', 'FAILED', etc.).
-    error_message: Any error message associated with the job run ('N/A' if no error).
+    error_message: Any error message associated with the job run (None if no error).
     job_id: The ID of the job run.
     active: Boolean indicating if the job is currently active based on inactive_days.
-    worker_type: Type of worker used ('G.1X', 'G.2X', 'Python Shell', 'N/A' if not specified).
-    dpu: Allocated processing units for the job run ('N/A' if not specified).
+    worker_type: Type of worker used ('G.1X', 'G.2X', 'Python Shell', None if not specified).
+    dpu: Allocated processing units for the job run (None if not specified).
     runtime: Execution time of the job run formatted as days, hours, minutes, seconds.
-    trigger_name: The name of the trigger associated with the job ('N/A' if no trigger).
-    timeout: The timeout setting for the job ('N/A' if not specified).
-    glue_version: The version of AWS Glue used ('N/A' if not specified).
+    trigger_name: The name of the trigger associated with the job (None if no trigger).
+    timeout: The timeout setting for the job (None if not specified).
+    glue_version: The version of AWS Glue used (None if not specified).
     reference_date: The current date formatted as '%Y-%m-%d'.
     """
     
@@ -1043,11 +1043,12 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
             # Get the job details
             job_details_response = glue.get_job(JobName=jobname)
             job_definition = job_details_response['Job']
-            timeout = job_definition.get('Timeout', 'N/A')
-            glue_version = job_definition.get('GlueVersion', 'N/A')
+            created_at = job_details_response['Job']['CreatedOn'].date()
+            timeout = job_definition.get('Timeout', None)
+            glue_version = job_definition.get('GlueVersion', None)
             triggers_response = glue.get_triggers(DependentJobName=jobname)
             triggers = triggers_response.get('Triggers', [])
-            trigger_name = triggers[0]['Name'] if triggers else 'N/A'
+            trigger_name = triggers[0]['Name'] if triggers else None
 
             # Get the job run history
             response = glue.get_job_runs(JobName=jobname)
@@ -1067,7 +1068,7 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
                 if (current_time - timedelta(hours=job_iterval) < start_time.replace(tzinfo=None)):
 
                     # Determine worker type and DPU capacity
-                    worker_type = run.get('WorkerType', 'N/A')
+                    worker_type = run.get('WorkerType', None)
                     if worker_type == 'Standard':
                         worker_type = 'G.1X'
                     elif worker_type == 'G.1X':
@@ -1077,7 +1078,7 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
                     elif worker_type == 'PythonShell':
                         worker_type = 'Python Shell'
                     
-                    dpu = run.get('AllocatedCapacity', 'N/A')
+                    dpu = run.get('AllocatedCapacity', None)
                     
                     def normalize_seconds(seconds):
                         if seconds < 0:
@@ -1100,13 +1101,13 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
                     # Define the job details and layout
                     job_detail = {
                         'run_date': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'created_at': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
-                        'glue_job_name': jobname,
-                        'job_type': run.get('JobType', 'N/A'),
+                        'created_at': (created_at - timedelta(hours=3)),
+                        'job_name': jobname,
+                        'job_type': run.get('JobType', None),
                         'start_time': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
-                        'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else 'N/A',
+                        'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else None,
                         'glue_job_status': job_state,
-                        'error_message': run.get('ErrorMessage', 'N/A'),
+                        'error_message': run.get('ErrorMessage', None),
                         'job_id': run['Id'],
                         'active': active,
                         'worker_type': worker_type,
@@ -1127,6 +1128,8 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
     job_report_df = pd.DataFrame(job_details)
     
     return job_report_df
+
+job_report(['guinea_pig'], job_iterval=12)
 
 # 21. restore_deleted_objects_S3
 def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
