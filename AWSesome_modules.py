@@ -37,6 +37,8 @@
 # 3. run_athena_query: This function run an athena query and wait for it to finish
 # 4. clear_s3_bucket: This function will clear an S3 bucket
 # 5. s3_updown: This function downloads or uploads files from/to S3
+# 6. List all Glue jobs
+# 7. Estimate the cost of a Glue job
 # ===================================================================================================================#
 
 # Dependency Libraries
@@ -163,6 +165,66 @@ def s3_updown(s3_uri:str, local_path:str, method:str = 'download'):
         s3.upload_file(local_path, bucket, prefix)
     else:
         raise ValueError(f'Invalid method: {method}')
+    
+# Aux 6. List all Glue jobs
+def list_jobs(suffix:str, region_name:str='sa-east-1') -> list:
+    '''
+    Description: List all Glue jobs in a region if suffix is '*'
+    returns a list of at least 1000 job names
+    Parameters:
+        suffix: str - Job name suffix to filter
+    Returns:
+        list - List of job names
+    '''
+    try:
+        glue = boto3.client('glue', region_name=region_name)
+        jobs = glue.list_jobs(MaxResults=1000).get('JobNames')
+        if suffix.strip().lower() == '*':
+            return jobs
+        else:
+            return list(set(filter(lambda job: suffix.strip().lower() in job.lower(), jobs)))
+    except Exception as e:
+        print(f'Error listing jobs: {str(e)}')
+
+# Aux 7. Estimate the cost of a Glue job
+def estimate_job_cost(job_name: str, RunId: str, region_name: str) -> float:
+    '''
+    Description: Estimates the cost of a Glue job running on AWS Glue. If no worker type is specified, PythonShell is assumed.
+    Parameters:
+        job_name: The name of the Glue job
+        RunId: The ID of the Glue job run
+        region_name: The AWS region where the Glue job is running
+    Returns:
+        The estimated cost of the Glue job
+    '''
+    costs = {
+        'G.1X': 0.44,
+        'G.2X': 0.88,
+        'G.4X': 1.76,
+        'G.8X': 3.52,
+        'G.16X': 7.04,
+        'G.32X': 14.08,
+        'Standard': 0.44,
+        'PythonShell': 0.44
+    }
+    glue = boto3.client('glue', region_name=region_name)
+    try:
+        response = glue.get_job_run(JobName=job_name, RunId=RunId)
+        job_run = response['JobRun']
+
+        duration_hours = job_run.get('ExecutionTime', 0) / 3600
+        dpu = job_run.get('MaxCapacity', 0)
+        try:
+            worker_type = job_run['WorkerType']
+        except:
+            worker_type = 'Standard'
+
+        cost = costs[worker_type] * dpu * duration_hours
+        return cost
+    except Exception as e:
+        print(f"Error: {e}")
+        return 0.0
+
     
 # ===================================================# Awesome Modules #===================================================#
 
@@ -1116,6 +1178,7 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
                         'trigger_name': trigger_name,
                         'timeout': timeout,
                         'glue_version': glue_version,
+                        'cost': estimate_job_cost(jobname, run['Id'], region_name),
                         'reference_date': current_time.strftime('%Y-%m-%d')
                         }
                     
@@ -1128,8 +1191,6 @@ def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31,
     job_report_df = pd.DataFrame(job_details)
     
     return job_report_df
-
-job_report(['guinea_pig'], job_iterval=12)
 
 # 21. restore_deleted_objects_S3
 def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
