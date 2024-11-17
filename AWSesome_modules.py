@@ -1258,3 +1258,95 @@ def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
         print("Error: Incomplete AWS credentials found. Please check your AWS credentials.")
     except Exception as e:
         print(f"An error occurred: {e}")
+
+# 22. get_calatog_latest_partition
+def get_calatog_latest_partition(database_name, table_name, athena_workgroup, region_name='sa-east-1'):
+    """
+    This function will return the latest partition of a table in AWS Glue Catalog
+    """
+    
+    OutputLocation = f"s3://athena-query-results-{boto3.Session().region_name}/{database_name}/".lower()
+    glue_client = boto3.client('glue', region_name)
+    athena_client = boto3.client('athena', region_name)
+
+    # Get partition keys and their types from Glue catalog
+    try:
+        glue_table = glue_client.get_table(DatabaseName=database_name, Name=table_name)
+        partition_keys = [
+            {"name": key['Name'], "type": key['Type']} 
+            for key in glue_table['Table'].get('PartitionKeys', [])
+        ]
+    except Exception as e:
+        raise Exception(f"Failed to fetch table metadata from Glue: {str(e)}")
+
+    if not partition_keys:
+        raise Exception(f"Table '{table_name}' in database '{database_name}' has no partitions.")
+
+    # Construct the ORDER BY clause dynamically
+    order_by_clause = ", ".join([f"{key['name']} DESC" for key in partition_keys])
+
+    query = f"""
+        SELECT *
+        FROM "{database_name}"."{table_name}$partitions"
+        ORDER BY {order_by_clause}
+        LIMIT 1;
+    """
+
+    try:
+        response = athena_client.start_query_execution(
+            QueryString=query,
+            QueryExecutionContext={'Database': database_name},
+            WorkGroup=athena_workgroup,
+            ResultConfiguration={'OutputLocation': OutputLocation}
+        )
+        query_execution_id = response['QueryExecutionId']
+    except Exception as e:
+        raise Exception(f"Failed to execute Athena query: {str(e)}")
+    
+    while True:
+        status = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
+        state = status['QueryExecution']['Status']['State']
+        if state in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
+            break
+        sleep(3)
+
+    if state != 'SUCCEEDED':
+        raise Exception(f"Athena query failed: {state}")
+    try:
+        result = athena_client.get_query_results(QueryExecutionId=query_execution_id)
+        rows = result['ResultSet']['Rows']
+    except Exception as e:
+        raise Exception(f"Failed to fetch query results: {str(e)}")
+
+    if len(rows) <= 1:  # Header row only
+        raise Exception(f"No partitions found for table '{table_name}'.")
+
+    # Extract partition keys and values
+    partition_values = {key['VarCharValue']: value['VarCharValue'] for key, value in zip(rows[0]['Data'], rows[1]['Data'])}
+    
+    # Build partition clause dynamically based on types
+    partition_conditions = []
+    for partition_key in partition_keys:
+        key_name = partition_key["name"]
+        key_type = partition_key["type"].lower()
+        key_value = partition_values[key_name]
+        
+        if "int" in key_type:  # Integer types (int, bigint, smallint, etc.)
+            partition_conditions.append(f"{key_name}={key_value}")
+        elif "float" in key_type or "double" in key_type:  # Floating-point types
+            partition_conditions.append(f"{key_name}={key_value}")
+        elif "boolean" in key_type:  # Boolean type
+            partition_conditions.append(f"{key_name}={key_value.lower()}")
+        elif "timestamp" in key_type:  # Timestamp type
+            partition_conditions.append(f"{key_name}='{key_value}'")
+        elif "date" in key_type:  # Date type
+            partition_conditions.append(f"{key_name}='{key_value}'")
+        elif "char" in key_type or "string" in key_type:  # Character or string types
+            partition_conditions.append(f"{key_name}='{key_value}'")
+        elif "decimal" in key_type:  # Decimal types
+            partition_conditions.append(f"{key_name}={key_value}")
+        else:  # Default case: handle as a string
+            partition_conditions.append(f"{key_name}='{key_value}'")
+
+    partition_clause = " AND ".join(partition_conditions)
+    return partition_clause
