@@ -1729,20 +1729,8 @@ def process_local_files(config: dict):
             - object_names (list): A list of object names (keys) within the S3 bucket and prefix.
             - table_suffix (str, optional): A suffix to be appended to the table name. If not specified,
               the table name will be based on the file name.
-
-    # Config model
-    config = {
-        's3_bucket': "your-s3-bucket-name",
-        's3_prefix': "your-s3-prefix",
-        'region': "your-aws-region",
-        'object_names': [
-            "file1.csv",
-            "file2.parquet",
-            "file3.json",
-            "file4.xlsx"],
-        'table_suffix': "processed"  # Example suffix to be appended to the table name
-    }
-    process_local_files(config)
+            - days_threshold (int): The number of days to check if the object is older. Objects older than
+              this threshold will be skipped.
 
     Returns:
         None
@@ -1754,6 +1742,10 @@ def process_local_files(config: dict):
     region = config.get('region')
     object_names = config.get('object_names')
     table_suffix = config.get('table_suffix', None)
+    days_threshold = config.get('days_threshold', 1)  # Default to 1 day if not specified
+
+    # Initialize boto3 S3 client
+    s3_client = boto3.client('s3', region_name=region)
 
     # Initialize GlueContext and SparkContext
     glueContext = GlueContext(SparkContext.getOrCreate())
@@ -1764,6 +1756,15 @@ def process_local_files(config: dict):
         try:
             # Construct the full S3 path
             full_s3_path = f"s3://{s3_bucket}/{s3_prefix}/{object_name}"
+
+            # Get object metadata to check the LastModified timestamp
+            response = s3_client.head_object(Bucket=s3_bucket, Key=f"{s3_prefix}/{object_name}")
+            last_modified = response['LastModified']
+            
+            # Check if the file is older than the specified threshold
+            if (datetime.now(last_modified.tzinfo) - last_modified).days > days_threshold:
+                print(f"Skipping {object_name} as it is older than {days_threshold} days.")
+                continue  # Skip processing this file
 
             # Determine file type based on extension
             file_type = object_name.split('.')[-1].lower()
