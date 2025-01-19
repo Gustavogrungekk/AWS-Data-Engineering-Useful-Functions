@@ -1478,7 +1478,8 @@ def get_s3_objects_details(bucket_names):
                     'encryption_status': encryption_status,
                     'tags': tags,
                     'data_retention_rule': data_retention_rule,
-                    'object_expiration': object_expiration
+                    'object_expiration': object_expiration,
+                    'anomesdia': datetime.now().strftime('%Y-%m-%d')
                 })
 
         except Exception as e:
@@ -1799,7 +1800,7 @@ def process_local_files(config: dict):
                 database="your_glue_database",  # Replace with your actual Glue database name
                 table_name=table_name,
                 transformation_ctx="DataCatalogOutput"
-            )
+                )
 
             print(f"Processed and registered: {full_s3_path} as table '{table_name}'")
 
