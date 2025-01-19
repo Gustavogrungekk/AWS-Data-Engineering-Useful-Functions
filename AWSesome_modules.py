@@ -6,46 +6,45 @@
 # Date: 2024-06-19
 # Version: 1.0
 #===================================================================================================================#
+# **Modules:**
 
-# INDEX:
-# 1. sync_s3_bucket: This function syncs files from an S3 bucket to a local directory.
-# 2. cdp_to_s3: This function transfers data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally registers it as a table in the AWS Glue Data Catalog.
-# 3. s3_contains: This function verifies if an S3 path exists.
-# 4. try_date: This function tries to convert a string to a date.
-# 5. clear_string: This function removes special characters from a string.
-# 6. estimate_size: This function estimates the size of a DataFrame in a human-readable format using SI units.
-# 7. success: This functino will upload a _SUCCESS file to an S3 path.
-# 8. check_success: This function checks if the _SUCCESS.txt file exists in the specified S3 path.
-# 9. create_update_table: This function will mimic the behavior of aws glue crawler replication to update a table in aws glue catalog or create it if it doesn't exist.
-# 10. get_last_modified_date: This function will check for the lattest modfied date in the s3 bucket for objects
-# 11. get_table: This function will retrieve a table from the AWS Glue Data Catalog.
-# 12. get_business_days: This function returns a list of business days between start_date and end_date for a given country.
-# 13. pack_libs: This function packs python libraries and store them in S3.
-# 14. aws_sso_login: This function automates the AWS SSO login process.
-# 15. list_s3_size: This function lists the size of files in an S3 bucket.
-# 16. save_athena_results: This function saves the results of an Athena query to an S3 path.
-# 17. log: This function logs a message using the provided Glue context.
-# 18. copy_redshift: This function copies data from S3 to Redshift.
-# 19. get_partition: This function fetches the last partition of a table.
-# 20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
-# 21. restore_deleted_objects_S3: This function restores all deleted objects in an S3 bucket with versioning enabled.
-# 22. get_calatog_latest_partition: This function returns the latest partition of a table in the AWS Glue Data Catalog.
-# 23. athena_query_audit_report: This function generates an audit report for an Athena query.
-# 24. get_s3_objects_details: This function returns details of objects in an S3 bucket.
-# 25. monitor_state_machines: This function monitors the state machine executions and returns the latest execution details.
-# 26. list_and_upload_files: This function lists files in a local directory path based on extension or name and upload them to S3.
-# 27. Process Local Files with Glue and stores in Glue Data Catalog
-# ===================================================================================================================#
+# * **Data Engineering:**
+#     1. sync_s3_bucket: This function syncs files from an S3 bucket to a local directory.
+#     2. cdp_to_s3: This function transfers data from a CDP (Cloudera Data Platform) Hive table to S3 and optionally registers it as a table in the AWS Glue Data Catalog.
+#     3. s3_contains: This function verifies if an S3 path exists.
+#     4. try_date: This function tries to convert a string to a date.
+#     5. clear_string: This function removes special characters from a string.
+#     6. estimate_size: This function estimates the size of a DataFrame in a human-readable format using SI units.
+#     7. success: This function uploads a _SUCCESS file to an S3 path.
+#     8. check_success: This function checks if the _SUCCESS.txt file exists in the specified S3 path.
+#     9. create_update_table: This function will mimic the behavior of aws glue crawler replication to update a table in aws glue catalog or create it if it doesn't exist.
+#     10. get_last_modified_date: This function will check for the lattest modfied date in the s3 bucket for objects
+#     11. get_table: This function will retrieve a table from the AWS Glue Data Catalog.
+#     12. get_business_days: This function returns a list of business days between start_date and end_date for a given country.
+#     13. pack_libs: This function packs python libraries and store them in S3.
+#     14. aws_sso_login: This function automates the AWS SSO login process.
+#     15. list_s3_size: This function lists the size of files in an S3 bucket.
+#     16. save_athena_results: This function saves the results of an Athena query to an S3 path.
+#     17. log: This function logs a message using the provided Glue context.
+#     18. copy_redshift: This function copies data from S3 to Redshift.
+#     19. get_partition: This function fetches the last partition of a table.
+#     20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
+#     21. restore_deleted_objects_S3: This function restores all deleted objects in an S3 bucket with versioning enabled.
+#     22. get_calatog_latest_partition: This function returns the latest partition of a table in the AWS Glue Data Catalog.
+#     23. athena_query_audit_report: This function generates an audit report for an Athena query.
+#     24. get_s3_objects_details: This function returns details of objects in an S3 bucket.
+#     25. monitor_state_machines: This function monitors the state machine executions and returns the latest execution details.
+#     26. list_and_upload_files: This function lists files in a local directory path based on extension or name and upload them to S3.
+#     27. process_local_files: This function processes local files stored in S3 and registers them in the Glue Data Catalog.
 
-# Auxiliary Functions
-# 1. convert_bytes: This function convert bytes into human readable format
-# 2. get_bucket: This function get bucket name and prefix from s3 path given a full s3 uri path
-# 3. run_athena_query: This function run an athena query and wait for it to finish
-# 4. clear_s3_bucket: This function will clear an S3 bucket
-# 5. s3_updown: This function downloads or uploads files from/to S3
-# 6. List all Glue jobs
-# 7. Estimate the cost of a Glue job
-# ===================================================================================================================#
+# * **Auxiliary Functions:**
+#     - 1. convert_bytes: This function convert bytes into human readable format
+#     - 2. get_bucket: This function get bucket name and prefix from s3 path given a full s3 uri path
+#     - 3. run_athena_query: This function run an athena query and wait for it to finish
+#     - 4. clear_s3_bucket: This function will clear an S3 bucket
+#     - 5. s3_updown: This function downloads or uploads files from/to S3
+#     - 6. list_glue_jobs: This function lists all Glue jobs
+#     - 7. estimate_glue_job_cost: This function estimates the cost of a Glue job
 
 # Dependency Libraries
 import pandas as pd
