@@ -29,6 +29,12 @@
 # 19. get_partition: This function fetches the last partition of a table.
 # 20. job_report: This function generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
 # 21. restore_deleted_objects_S3: This function restores all deleted objects in an S3 bucket with versioning enabled.
+# 22. get_calatog_latest_partition: This function returns the latest partition of a table in the AWS Glue Data Catalog.
+# 23. athena_query_audit_report: This function generates an audit report for an Athena query.
+# 24. get_s3_objects_details: This function returns details of objects in an S3 bucket.
+# 25. monitor_state_machines: This function monitors the state machine executions and returns the latest execution details.
+# 26. list_and_upload_files: This function lists files in a local directory path based on extension or name and upload them to S3.
+# 27. Process Local Files with Glue and stores in Glue Data Catalog
 # ===================================================================================================================#
 
 # Auxiliary Functions
@@ -61,6 +67,8 @@ import boto3
 import os
 import psycopg2
 import repartipy
+import pytz
+import pyarrow.parquet as pq
 from awsglue.context import GlueContext
 from pyspark.context import SparkContext
 from pyspark.sql import SparkSession
@@ -1055,142 +1063,96 @@ def get_partition(table: str, delimiter: str = '/', spark=None):
     return last_p
 
 # 20. job_report
-def job_report(jobnames:list, region_name:str='sa-east-1', inactive_days:int=31, job_iterval:int=12):
+def get_glue_job_audit_report(jobnames, region_name='us-east-1', inactive_days=31, hours_interval=12):
     """
-    Description:
-    Generates a report for the specified AWS Glue jobs, compiling details such as run date, start and end times, job status, and more.
-    Marks jobs as inactive if they haven't run within the specified number of days.
+    Generates an audit report for AWS Glue jobs by retrieving job details, execution statistics, and associated costs.
 
     Args:
-        jobnames (list): List of Glue job names to report on.
-        region_name (str): AWS region where the Glue jobs are located (default is 'sa-east-1').
-        inactive_days (int): Number of days to check for job inactivity (default is 31).
-        job_iterval (int): Number of minutes between job runs (default is 12).
+        jobnames (list): A list of AWS Glue job names to retrieve audit information for.
+        region_name (str, optional): The AWS region to connect to. Defaults to 'us-east-1'.
+        inactive_days (int, optional): The number of days to consider a job as 'inactive'. Defaults to 31.
+        hours_interval (int, optional): The interval in hours for filtering job runs. Defaults to 12.
 
     Returns:
-        pd.DataFrame: A DataFrame containing the report of the specified Glue jobs.
-
-    Example:
-        job_report(['guinea_pig', 'guinea_pig_2'], region_name='sa-east-1', inactive_days=31)
-
-    Tips:
-        You can create a function that filters the job names based on your needs like a tag=smth or job type.
-
-    Dictionary of Glue job statuses:
-    run_date: The start time of the job run formatted as '%Y-%m-%d %H:%M:%S'.
-    created_at: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
-    glue_job_name: The name of the Glue job being reported on.
-    job_type: The type of Glue job (None if not specified).
-    start_time: The adjusted start time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S'.
-    end_time: The adjusted end time (subtracting 3 hours) formatted as '%Y-%m-%d %H:%M:%S' if available, otherwise None.
-    glue_job_status: The current state of the job run ('SUCCEEDED', 'FAILED', etc.).
-    error_message: Any error message associated with the job run (None if no error).
-    job_id: The ID of the job run.
-    active: Boolean indicating if the job is currently active based on inactive_days.
-    worker_type: Type of worker used ('G.1X', 'G.2X', 'Python Shell', None if not specified).
-    dpu: Allocated processing units for the job run (None if not specified).
-    runtime: Execution time of the job run formatted as days, hours, minutes, seconds.
-    trigger_name: The name of the trigger associated with the job (None if no trigger).
-    timeout: The timeout setting for the job (None if not specified).
-    glue_version: The version of AWS Glue used (None if not specified).
-    reference_date: The current date formatted as '%Y-%m-%d'.
+        pd.DataFrame: A DataFrame containing the job audit report with details such as job status, execution time, 
+                      cost, data processed, records processed, and trigger information.
     """
-    
+
     glue = boto3.client('glue', region_name=region_name)
+    current_time = datetime.now(timezone.utc)
+    costs = {
+        'G.1X': 0.44,
+        'G.2X': 0.88,
+        'G.4X': 1.76,
+        'G.8X': 3.52,
+        'G.16X': 7.04,
+        'G.32X': 14.08,
+        'Standard': 0.44,
+        'PythonShell': 0.44,
+    }
     job_details = []
-    current_time = (datetime.today() - timedelta(hours=3))
 
     for jobname in jobnames:
         try:
-            # Get the job details
-            job_details_response = glue.get_job(JobName=jobname)
-            job_definition = job_details_response['Job']
-            created_at = job_details_response['Job']['CreatedOn'].date()
+            job_response = glue.get_job(JobName=jobname)
+            job_definition = job_response['Job']
+            created_at = job_definition['CreatedOn']
             timeout = job_definition.get('Timeout', None)
             glue_version = job_definition.get('GlueVersion', None)
-            triggers_response = glue.get_triggers(DependentJobName=jobname)
-            triggers = triggers_response.get('Triggers', [])
-            trigger_name = triggers[0]['Name'] if triggers else None
+            execution_mode = job_definition.get('ExecutionClass', 'Standard')
 
-            # Get the job run history
-            response = glue.get_job_runs(JobName=jobname)
-            job_runs = response['JobRuns']
+            # Fetch all triggers and filter by jobname
+            triggers = glue.get_triggers()
+            trigger_name = None
+            for trigger in triggers['Triggers']:
+                if jobname in [action['JobName'] for action in trigger.get('Actions', [])]:
+                    trigger_name = trigger['Name']
+                    break
             
+            job_runs = glue.get_job_runs(JobName=jobname)['JobRuns']
             for run in job_runs:
                 start_time = run['StartedOn']
                 end_time = run.get('CompletedOn', None)
                 job_state = run['JobRunState']
-                
-                # Check if the job is active based on the given inactive_days period
-                if (current_time - start_time.replace(tzinfo=None)) <= timedelta(days=inactive_days):
-                    active = True
-                else:
-                    active = False
-                
-                if (current_time - timedelta(hours=job_iterval) < start_time.replace(tzinfo=None)):
+                is_active = (current_time - start_time) <= timedelta(days=inactive_days)
+                runtime_seconds = run.get('ExecutionTime', 0)
+                runtime_hours = runtime_seconds / 3600
+                error_message = run.get('ErrorMessage', None)
 
-                    # Determine worker type and DPU capacity
-                    worker_type = run.get('WorkerType', None)
-                    if worker_type == 'Standard':
-                        worker_type = 'G.1X'
-                    elif worker_type == 'G.1X':
-                        worker_type = 'G.1X'
-                    elif worker_type == 'G.2X':
-                        worker_type = 'G.2X'
-                    elif worker_type == 'PythonShell':
-                        worker_type = 'Python Shell'
-                    
-                    dpu = run.get('AllocatedCapacity', None)
-                    
-                    def normalize_seconds(seconds):
-                        if seconds < 0:
-                            raise ValueError("Seconds must be a non-negative integer.")
+                worker_type = run.get('WorkerType', 'Standard')
+                if worker_type == 'Standard':
+                    worker_type = 'G.1X'
 
-                        days = seconds // (24 * 3600)
-                        hours = (seconds % (24 * 3600)) // 3600
-                        minutes = (seconds % 3600) // 60
-                        remaining_seconds = seconds % 60
+                dpu = run.get('MaxCapacity', 0)
+                cost = costs.get(worker_type, 0) * dpu * runtime_hours
 
-                        if days > 0:
-                            return f"{days} days, {hours} hours, {minutes} minutes, {remaining_seconds} seconds"
-                        elif hours > 0:
-                            return f"{hours} hours, {minutes} minutes, {remaining_seconds} seconds"
-                        elif minutes > 0:
-                            return f"{minutes} minutes, {remaining_seconds} seconds"
-                        else:
-                            return f"{remaining_seconds} seconds"
-                        
-                    # Define the job details and layout
-                    job_detail = {
-                        'run_date': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'created_at': (created_at - timedelta(hours=3)),
-                        'job_name': jobname,
-                        'job_type': run.get('JobType', None),
-                        'start_time': (start_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S'),
-                        'end_time': (end_time - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S') if end_time else None,
-                        'glue_job_status': job_state,
-                        'error_message': run.get('ErrorMessage', None),
-                        'job_id': run['Id'],
-                        'active': active,
-                        'worker_type': worker_type,
-                        'dpu': dpu,
-                        'runtime': normalize_seconds(run.get('ExecutionTime', -1)),
-                        'trigger_name': trigger_name,
-                        'timeout': timeout,
-                        'glue_version': glue_version,
-                        'cost': estimate_job_cost(jobname, run['Id'], region_name),
-                        'reference_date': current_time.strftime('%Y-%m-%d')
-                        }
-                    
-                    job_details.append(job_detail)
-        
+                job_details.append({
+                    'job_name': jobname,
+                    'job_type': 'Glue Job',
+                    'job_date_creation': created_at.strftime('%Y-%m-%d'),
+                    'run_date': start_time.strftime('%Y-%m-%d'),
+                    'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S') if end_time else None,
+                    'glue_job_status': job_state,
+                    'active': is_active,
+                    'worker_type': worker_type,
+                    'dpu': dpu,
+                    'runtime': f"{runtime_hours:.2f} hours",
+                    'execution_mode': execution_mode,
+                    'glue_version': glue_version,
+                    'timeout': timeout,
+                    'cost': round(cost, 2),
+                    'error_message': error_message,
+                    'trigger_name': trigger_name,
+                    'data_processed': run.get('Metrics', {}).get('DataProcessed', {}).get('BYTES', 0),
+                    'records_processed': run.get('Metrics', {}).get('RecordsProcessed', {}).get('COUNT', 0),
+                    'anomesdia': start_time.strftime('%Y%m%d')
+                })
+
         except Exception as e:
-            print(f"Error getting details for job {jobname}: {e}")
-    
-    # Create a Pandas DataFrame
-    job_report_df = pd.DataFrame(job_details)
-    
-    return job_report_df
+            print(f"Error processing job {jobname}: {e}")
+
+    return pd.DataFrame(job_details)
 
 # 21. restore_deleted_objects_S3
 def restore_deleted_objects_S3(bucket_name, prefix='', time=None):
@@ -1350,3 +1312,496 @@ def get_calatog_latest_partition(database_name, table_name, athena_workgroup, re
 
     partition_clause = " AND ".join(partition_conditions)
     return partition_clause
+
+# 23. athena_query_audit_report
+def athena_query_audit_report(region:str, hours_interval:int, workgroups:list):
+    '''
+    Description:
+        This function will return a report of all queries executed in a given region and workgroups.
+
+    Args:
+        region (str): AWS region name.
+        hours_interval (int): Number of hours to look back.
+        workgroups (list): List of workgroup names.
+
+    Returns:
+        report_data (list): List of dictionaries containing query details.
+    '''
+
+    athena_client = boto3.client('athena', region_name=region)
+
+    # Calculate the time range
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(hours=hours_interval)
+
+    report_data = []
+
+    for workgroup in workgroups:
+        # Fetch query execution IDs for the current workgroup
+        executions = athena_client.list_query_executions(WorkGroup=workgroup)
+        query_ids = executions.get('QueryExecutionIds', [])
+
+        for query_id in query_ids:
+            query_execution = athena_client.get_query_execution(QueryExecutionId=query_id)['QueryExecution']
+
+            # Extract required fields
+            query_start_time = query_execution['Status']['SubmissionDateTime']
+            if not (start_time <= query_start_time <= end_time):
+                continue
+
+            query_end_time = query_execution['Status'].get('CompletionDateTime')
+            run_date = query_start_time.strftime('%Y-%m-%d') if query_start_time else None
+            query = query_execution['Query'].replace('\n', ' ')
+            status = query_execution['Status']['State']
+            scanned_bytes = query_execution['Statistics'].get('DataScannedInBytes', 0)
+            scanned_kb = round(scanned_bytes / 1024, 2)
+            scanned_mb = round(scanned_kb / 1024, 2)
+            scanned_gb = round(scanned_mb / 1024, 2)
+            database = query_execution['QueryExecutionContext'].get('Database')
+            output_location = query_execution['ResultConfiguration'].get('OutputLocation')
+            workgroup = query_execution['WorkGroup']
+            estimated_cost = round(scanned_gb * 5, 2)  # Estimated $5 per TB scanned, rounded to 2 decimal places
+            anomesdia = query_start_time.strftime('%Y%m%d') if query_start_time else None
+
+            # Add record to report
+            report_data.append({
+                'query_id': query_id,
+                'run_date': run_date,
+                'start_time': query_start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'end_date': query_end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'query': query,
+                'status': status,
+                'scanned_bytes': scanned_bytes,
+                'scanned_kb': scanned_kb,
+                'scanned_mb': scanned_mb,
+                'scanned_gb': scanned_gb,
+                'database': database,
+                'output_location': output_location,
+                'workgroup': workgroup,
+                'estimated_cost_usd': estimated_cost,
+                'anomesdia': anomesdia
+            })
+
+    # Convert to DataFrame
+    df = pd.DataFrame(report_data)
+
+    return df
+
+
+# 24. get_s3_objects_details
+def get_s3_objects_details(bucket_names):
+    """
+    List all objects within given S3 buckets and return detailed information for analysis.
+
+    Args:
+        bucket_names (list): List of S3 bucket names.
+
+    Returns:
+        pd.DataFrame: DataFrame containing object details for the given buckets.
+    """
+    s3 = boto3.client('s3')
+    current_time = datetime.now(pytz.UTC)  # Make current time aware (UTC)
+    all_objects_details = []
+
+    for bucket_name in bucket_names:  # Loop through each bucket name
+        try:
+            # Get the storage class of the bucket
+            bucket_info = s3.head_bucket(Bucket=bucket_name)
+            storage_class = bucket_info.get('StorageClass', 'STANDARD')  # Default to STANDARD if not found
+
+            # List the objects in the bucket
+            objects = s3.list_objects_v2(Bucket=bucket_name)
+            if 'Contents' not in objects:
+                print(f"No objects found in bucket: {bucket_name}")
+                continue
+
+            most_accessed_object = None
+            most_accessed_object_count = 0  # To track the most accessed object
+            for obj in objects['Contents']:
+                key = obj['Key']
+                last_modified = obj['LastModified'].astimezone(pytz.UTC)  # Convert to UTC-aware datetime
+                size_bytes = obj['Size']
+                
+                # Size formatting
+                size_kb = size_bytes / 1024
+                size_mb = size_kb / 1024
+                size_gb = size_mb / 1024
+                size_tb = size_gb / 1024
+                size_pb = size_tb / 1024
+
+                # Convert sizes to human-readable format
+                size_kb = round(size_kb, 2)
+                size_mb = round(size_mb, 2)
+                size_gb = round(size_gb, 2)
+                size_tb = round(size_tb, 2)
+                size_pb = round(size_pb, 2)
+
+                # Extract file extension (data type)
+                file_extension = key.split('.')[-1] if '.' in key else 'unknown'
+
+                # Check encryption status (server-side encryption)
+                encryption_status = obj.get('ServerSideEncryption', 'None')
+
+                # Calculate object age in days
+                age = current_time - last_modified
+                age_days = age.days
+
+                # Retrieve data retention rule and expiration (if set)
+                data_retention_rule = obj.get('Metadata', {}).get('dataRetentionRule', 'Not Set')
+                object_expiration = obj.get('Expiration', 'Not Set')
+
+                # Object tags (if any)
+                try:
+                    tags = s3.get_object_tagging(Bucket=bucket_name, Key=key)
+                    tags = tags.get('TagSet', [])
+                except s3.exceptions.ClientError:
+                    tags = []
+
+                # Check for most accessed object
+                if obj['Size'] > most_accessed_object_count:
+                    most_accessed_object = key
+                    most_accessed_object_count = obj['Size']
+
+                # Append object details
+                all_objects_details.append({
+                    'bucket_name': bucket_name,
+                    'storage_class': storage_class, 
+                    'object_key': key,
+                    'most_accessed_object': most_accessed_object,
+                    'file_extension': file_extension,
+                    'size_kb': f"{size_kb} KB",
+                    'size_mb': f"{size_mb} MB",
+                    'size_gb': f"{size_gb} GB",
+                    'size_tb': f"{size_tb} TB",
+                    'size_pb': f"{size_pb} PB",
+                    'last_modified': last_modified.strftime('%Y-%m-%d %H:%M:%S'),
+                    'object_age_days': age_days,
+                    'encryption_status': encryption_status,
+                    'tags': tags,
+                    'data_retention_rule': data_retention_rule,
+                    'object_expiration': object_expiration
+                })
+
+        except Exception as e:
+            print(f"Error processing bucket {bucket_name}: {e}")
+
+    return pd.DataFrame(all_objects_details)
+
+# 25. monitor_state_machines
+def monitor_state_machines(state_machines, interval_hours=24, region_name='us-east-1'):
+    """
+    Monitor state machine executions and return a detailed report.
+
+    :param state_machines: List of state machine ARNs or names.
+    :param interval_hours: Time interval in hours to filter executions.
+    :param region_name: AWS region where the state machine is located.
+    :return: Pandas DataFrame with execution details.
+    """
+    client = boto3.client('stepfunctions', region_name=region_name)
+    current_time = datetime.now(timezone.utc) 
+    start_time = current_time - timedelta(hours=interval_hours)
+
+    report_data = []
+
+    for state_machine_arn in state_machines:
+        try:
+            # Get state machine details
+            state_machine = client.describe_state_machine(stateMachineArn=state_machine_arn)
+            state_machine_name = state_machine['name']
+            definition = json.loads(state_machine['definition'])
+            iam_role = state_machine['roleArn']
+
+            # Detect related services using a generic regex
+            related_services = set()
+            arn_pattern = r"arn:aws:(\w+):[^:]+:.*" 
+            for _, step in definition['States'].items():
+                if step['Type'] == 'Task':  # Check if it's a task state
+                    resource = step.get('Resource', '')
+                    match = re.match(arn_pattern, resource)
+                    if match:
+                        related_services.add(match.group(1)) 
+
+            # Fetch executions
+            paginator = client.get_paginator('list_executions')
+            page_iterator = paginator.paginate(
+                stateMachineArn=state_machine_arn,
+                maxResults=100
+            )
+
+            for page in page_iterator:
+                for execution in page['executions']:
+                    execution_arn = execution['executionArn']
+                    status = execution['status']
+                    start_date = execution['startDate']
+                    stop_date = execution.get('stopDate', None)
+                    anomesdia = start_date.strftime('%Y%m%d') 
+
+                    # Initialize fields
+                    step_statuses = {}
+                    step_durations = {}
+                    retried_steps = []
+                    error_messages = []
+                    error_codes = []
+
+                    # Analyze history for detailed metrics
+                    history = client.get_execution_history(
+                        executionArn=execution_arn,
+                        maxResults=1000,
+                        reverseOrder=False
+                    )['events']
+
+                    for event in history:
+                        if 'stateEnteredEventDetails' in event:
+                            step_name = event['stateEnteredEventDetails']['name']
+                            step_start = event['timestamp']
+                            step_statuses[step_name] = 'STARTED'
+                        if 'stateExitedEventDetails' in event:
+                            step_name = event['stateExitedEventDetails']['name']
+                            step_end = event['timestamp']
+                            step_statuses[step_name] = 'SUCCEEDED'
+                            step_durations[step_name] = (step_end - step_start).total_seconds()
+                        if 'executionFailedEventDetails' in event:
+                            error_message = event['executionFailedEventDetails'].get('cause', 'Unknown cause')
+                            error_codes.append(event['executionFailedEventDetails'].get('error', 'Unknown error'))
+                            error_messages.append(error_message)
+                        if 'executionRetriedEventDetails' in event:
+                            retried_steps.append(event['executionRetriedEventDetails'].get('name'))
+
+                    # Calculate duration
+                    if stop_date:
+                        total_duration = (stop_date - start_date).total_seconds()
+                        total_duration_minutes = total_duration / 60 
+                        total_duration_hours = total_duration / 3600
+
+                    report_row = {
+                        "state_machine_arn": state_machine_arn,
+                        "state_machine_name": state_machine_name,
+                        "execution_arn": execution_arn,
+                        "execution_name": execution['name'],
+                        "start_date": start_date.strftime('%Y-%m-%d %H:%M:%S'),
+                        "stop_date": stop_date.strftime('%Y-%m-%d %H:%M:%S') if stop_date else 'Still Running',
+                        "status": status,
+                        "step_statuses": step_statuses,
+                        "step_durations": step_durations,
+                        "retried_steps": retried_steps,
+                        "error_messages": error_messages,
+                        "error_codes": error_codes,
+                        "related_services": list(related_services),
+                        "iam_roles": iam_role,
+                        "total_duration_seconds": total_duration, 
+                        "total_duration_minutes": round(total_duration_minutes, 2), 
+                        "total_duration_hours": round(int(total_duration_hours), 2),
+                        "anomesdia": anomesdia, 
+                    }
+
+                    report_data.append(report_row)
+
+        except Exception as e:
+            print(f"Error processing state machine {state_machine_arn}: {e}")
+
+    # Convert to DataFrame
+    if report_data:
+        df = pd.DataFrame(report_data)
+    else:
+        df = pd.DataFrame()
+
+    return df
+
+# 26. list_and_upload_files
+def list_and_upload_files(config):
+    """
+    List files in a network/local directory path based on extension or name and upload them to S3.
+    Returns a list of processed file names.
+
+    :param config: Configuration dictionary containing necessary parameters.
+
+    Example usage:
+    # Example configuration
+    config = {
+        'network_path': r"", # Example: C:\Users\abc\data\files
+        's3_bucket': "myawsbucket", # Bucket name
+        's3_prefix': "Datasets/local_files/", # Example: Datasets/local_files/
+        'file_extension': 'csv', # Change to 'xlsx' or 'parquet' if needed
+        'file_name': ['iris'], # Use specific file name if required (list of names)
+        'output_format': 'parquet', # This will ensure the output is always Parquet
+        }
+
+    uploaded_files, file_names = list_and_upload_files(config)
+    print(f"Uploaded files: {uploaded_files}")
+    print(f"Processed file names: {file_names}")
+
+    """
+    s3_client = boto3.client('s3')
+    uploaded_files = []
+    file_names = []  # This will store the names of files that are processed or uploaded
+
+    # Get all the parameters from config dictionary
+    network_path = config.get('network_path')
+    s3_bucket = config.get('s3_bucket')
+    s3_prefix = config.get('s3_prefix', '') # Optional, default to empty string if not provided
+    file_extension = config.get('file_extension', None)
+    file_name = config.get('file_name', None)
+    output_format = config.get('output_format', 'parquet') # Default to 'parquet' if not provided
+
+    # Collect files
+    files = []
+    for root, _, filenames in os.walk(network_path):
+        for filename in filenames:
+            if file_name and not any(fn in filename for fn in file_name):  # Handle file_name as a list
+                continue
+            if file_extension and not filename.endswith(f".{file_extension}"):
+                continue
+            files.append(os.path.join(root, filename))
+
+    # Limit the number of files processed
+    files = files[:config.get('max_files', 10)]  # Use config for max_files
+
+    for file_path in files:
+        try:
+            file_name = os.path.basename(file_path)
+            s3_key = os.path.join(s3_prefix, file_name)
+
+            # Add file name to the list
+            file_names.append(file_name)
+
+            # Handle different file types and apply the output_format conversion early
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path)
+                buffer = convert_to_output_format(df, output_format)
+                s3_key = s3_key.replace('.csv', f'.{output_format}')
+            
+            elif file_path.endswith('.xlsx'):
+                # Read all sheets into a dictionary of DataFrames
+                excel_data = pd.read_excel(file_path, sheet_name=None)
+                for sheet_name, df in excel_data.items():
+                    sheet_s3_key = f"{s3_key}_{sheet_name}.{output_format}"
+                    buffer = convert_to_output_format(df, output_format)
+                    s3_client.put_object(Bucket=s3_bucket, Key=sheet_s3_key, Body=buffer)
+                    uploaded_files.append(sheet_s3_key)  # Add sheet_s3_key to uploaded_files
+                continue  # Skip further processing for .xlsx after sheets are uploaded
+
+            elif file_path.endswith('.parquet'):
+                table = pq.read_table(file_path)
+                df = table.to_pandas()
+                buffer = convert_to_output_format(df, output_format)
+                s3_key = s3_key.replace('.parquet', f'.{output_format}')
+
+            else:
+                # For unsupported file types, upload as binary
+                with open(file_path, 'rb') as file:
+                    s3_client.upload_fileobj(file, s3_bucket, s3_key)
+                uploaded_files.append(s3_key)
+                continue
+
+            # Upload the processed buffer to S3
+            s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=buffer)
+            uploaded_files.append(s3_key)
+            print(f"Uploaded: {file_path} -> s3://{s3_bucket}/{s3_key}")
+
+        except Exception as e:
+            print(f"Error processing file {file_path}: {e}")
+
+    return uploaded_files, file_names
+
+def convert_to_output_format(df, output_format):
+    """
+    Convert a DataFrame to the specified output format.
+    :param df: The pandas DataFrame to be converted.
+    :param output_format: The desired output format (parquet, csv, etc.)
+    :return: The converted data in the desired format (as bytes).
+    """
+    if output_format == 'parquet':
+        return df.to_parquet(engine='pyarrow', index=False)
+    elif output_format == 'csv':
+        return df.to_csv(index=False).encode('utf-8')
+    else:
+        raise ValueError(f"Unsupported output format: {output_format}")
+
+# 27. Process Local Files with Glue and stores in Glue Data Catalog
+def process_local_files(config: dict):
+    """
+    Processes files stored in S3 and registers them in the Glue Data Catalog.
+
+    Args:
+        config (dict): A dictionary containing the configuration parameters:
+            - s3_bucket (str): The S3 bucket where the files are stored.
+            - s3_prefix (str): The S3 prefix for the files.
+            - region (str): The AWS region where the S3 bucket and Glue service are located.
+            - object_names (list): A list of object names (keys) within the S3 bucket and prefix.
+            - table_suffix (str, optional): A suffix to be appended to the table name. If not specified,
+              the table name will be based on the file name.
+
+    # Config model
+    config = {
+        's3_bucket': "your-s3-bucket-name",
+        's3_prefix': "your-s3-prefix",
+        'region': "your-aws-region",
+        'object_names': [
+            "file1.csv",
+            "file2.parquet",
+            "file3.json",
+            "file4.xlsx"],
+        'table_suffix': "processed"  # Example suffix to be appended to the table name
+    }
+    process_local_files(config)
+
+    Returns:
+        None
+    """
+
+    # Get configuration parameters
+    s3_bucket = config.get('s3_bucket')
+    s3_prefix = config.get('s3_prefix')
+    region = config.get('region')
+    object_names = config.get('object_names')
+    table_suffix = config.get('table_suffix', None)
+
+    # Initialize GlueContext and SparkContext
+    glueContext = GlueContext(SparkContext.getOrCreate())
+    spark = glueContext.spark_session
+
+    # Loop through each file in the object_names list
+    for object_name in object_names:
+        try:
+            # Construct the full S3 path
+            full_s3_path = f"s3://{s3_bucket}/{s3_prefix}/{object_name}"
+
+            # Determine file type based on extension
+            file_type = object_name.split('.')[-1].lower()
+
+            # Read the data from S3 based on the file type
+            if file_type == 'csv':
+                df = spark.read.format('csv').option('header', 'true').option('inferSchema', 'true').load(full_s3_path)
+            elif file_type == 'parquet':
+                df = spark.read.parquet(full_s3_path)
+            elif file_type == 'json':
+                df = spark.read.json(full_s3_path)
+            elif file_type in ['xls', 'xlsx']:
+                df = spark.read.format('com.crealytics.spark.excel') \
+                    .option('useHeader', 'true') \
+                    .option('inferSchema', 'true') \
+                    .load(full_s3_path)
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+
+            # Convert DataFrame to DynamicFrame
+            dynamic_frame = DynamicFrame.fromDF(df, glueContext, "dynamic_frame")
+
+            # Create the table name, appending the suffix if provided
+            if table_suffix:
+                table_name = f"{table_suffix}{object_name.split('.')[0]}"
+            else:
+                table_name = f"{object_name.split('.')[0]}"  # Use file name without extension
+
+            # Register the data in the Glue Data Catalog
+            glueContext.write_dynamic_frame.from_catalog(
+                frame=dynamic_frame,
+                database="your_glue_database",  # Replace with your actual Glue database name
+                table_name=table_name,
+                transformation_ctx="DataCatalogOutput"
+            )
+
+            print(f"Processed and registered: {full_s3_path} as table '{table_name}'")
+
+        except Exception as e:
+            print(f"Error processing file: {full_s3_path}. Error: {e}")
