@@ -1356,10 +1356,11 @@ def athena_query_audit_report(region:str, hours_interval:int, workgroups:list):
             scanned_kb = round(scanned_bytes / 1024, 2)
             scanned_mb = round(scanned_kb / 1024, 2)
             scanned_gb = round(scanned_mb / 1024, 2)
+            scanned_tb = round(scanned_gb / 1024, 2)
             database = query_execution['QueryExecutionContext'].get('Database')
             output_location = query_execution['ResultConfiguration'].get('OutputLocation')
             workgroup = query_execution['WorkGroup']
-            estimated_cost = round(scanned_gb * 5, 2)  # Estimated $5 per TB scanned, rounded to 2 decimal places
+            estimated_cost = round(scanned_tb * 5, 2)  # Estimated $5 per TB scanned, rounded to 2 decimal places
             anomesdia = query_start_time.strftime('%Y%m%d') if query_start_time else None
 
             # Add record to report
