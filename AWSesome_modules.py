@@ -1387,7 +1387,6 @@ def athena_query_audit_report(region:str, hours_interval:int, workgroups:list):
 
     return df
 
-
 # 24. get_s3_objects_details
 def get_s3_objects_details(bucket_names):
     """
