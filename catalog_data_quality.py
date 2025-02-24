@@ -166,7 +166,6 @@ def run_quality_check(tables: list, region='sa-east-1', output_location='s3://at
     
     return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
 
-# Example usage
 if __name__ == "__main__":
     tables_list = [
         "my_database.table1",
