@@ -98,9 +98,14 @@ def _resolve_dataframe(
     athena_database: Optional[str] = None,
     region: str = "us-east-1",
     spark=None,
+    compression: str = "SNAPPY",
 ):
     """Return a Spark DataFrame — either the one passed in, or one built
-    by executing *sql* on Athena and reading the resulting CSV with Spark."""
+    by executing *sql* on Athena via ``UNLOAD`` as Parquet.
+
+    Using ``UNLOAD`` preserves the original column types from Athena
+    (no CSV parsing / schema inference required).
+    """
     if df is not None and sql is not None:
         raise ValueError("Provide either 'dataframe' or 'sql', not both.")
     if df is None and sql is None:
@@ -109,22 +114,35 @@ def _resolve_dataframe(
     if df is not None:
         return df
 
+    if not athena_output:
+        raise ValueError(
+            "athena_output (S3 path) is required when using sql= so "
+            "UNLOAD can write Parquet results there."
+        )
+
+    import uuid
+
     from awsome.athena import run_query as _run_athena
 
-    qid = _run_athena(
-        sql,
+    # Build a unique subfolder so UNLOAD always writes to an empty prefix
+    unload_path = athena_output.rstrip("/") + f"/unload_{uuid.uuid4().hex}/"
+
+    unload_sql = (
+        f"UNLOAD ({sql})\n"
+        f"TO '{unload_path}'\n"
+        f"WITH (format = 'PARQUET', compression = '{compression}')"
+    )
+
+    _run_athena(
+        unload_sql,
         database=athena_database,
         workgroup=athena_workgroup,
         output_location=athena_output,
         region=region,
     )
 
-    athena_client = boto3.client("athena", region_name=region)
-    qe = athena_client.get_query_execution(QueryExecutionId=qid)["QueryExecution"]
-    csv_s3_path = qe["ResultConfiguration"]["OutputLocation"]
-
     spark = _get_or_create_spark(spark)
-    return spark.read.option("header", "true").option("inferSchema", "true").csv(csv_s3_path)
+    return spark.read.parquet(unload_path)
 
 
 def _estimate_df_bytes(df, spark) -> int:

@@ -1,7 +1,9 @@
 ﻿"""
 Universal write engine — write a Spark DataFrame (or Athena SQL result)
 to S3 and register it in the AWS Glue Data Catalog.
-
+When the source is an Athena SQL query, the function uses ``UNLOAD`` to
+export results as **Parquet** so column types are preserved natively (no
+CSV parsing / schema inference).
 Every pipeline step is logged through the Glue logger **and** Python's
 standard ``logging`` so output always appears in CloudWatch and the console.
 
@@ -135,8 +137,10 @@ def write_dataframe(
 
     Args:
         dataframe: Source Spark ``DataFrame``.  Mutually exclusive with *sql*.
-        sql: Athena SQL query.  Runs on Athena, reads result CSV into Spark.
-            Mutually exclusive with *dataframe*.
+        sql: Athena SQL query.  Executed on Athena via ``UNLOAD`` so the
+            result is written as **Parquet** (preserving native types — no
+            CSV parsing or schema inference).  Mutually exclusive with
+            *dataframe*.
         database: Glue Catalog database name.
         table: Target table name.
         path: S3 location for data files
@@ -295,10 +299,11 @@ def write_dataframe(
     # ==================================================================
     #  1. SOURCE
     # ==================================================================
-    source_type = "Athena SQL" if sql else "Spark DataFrame"
+    source_type = "Athena SQL (UNLOAD → Parquet)" if sql else "Spark DataFrame"
     log.step(1, "SOURCE", f"Loading source data ({source_type})")
     if sql:
         log.sub(f"SQL: {sql[:200]}{'...' if len(sql) > 200 else ''}")
+        log.sub("Athena UNLOAD will export as Parquet (native types preserved)")
 
     df = _resolve_dataframe(
         df=dataframe,
@@ -308,6 +313,7 @@ def write_dataframe(
         athena_database=athena_database or database,
         region=region,
         spark=spark,
+        compression=compression.upper(),
     )
     metrics["source"] = "sql" if sql else "dataframe"
     log.sub(f"Columns loaded  : {len(df.columns)}")
