@@ -1,4 +1,4 @@
-"""
+﻿"""
 Data quality checks via Athena.
 
 Functions:
@@ -13,7 +13,7 @@ from typing import Optional
 import boto3
 import pandas as pd
 
-from awsesome.athena import run_query, fetch_query_results
+from awsome.athena import run_query, fetch_query_results
 
 
 def run_quality_check(

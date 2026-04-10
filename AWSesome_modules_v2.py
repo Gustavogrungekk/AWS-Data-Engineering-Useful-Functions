@@ -1,19 +1,19 @@
-"""
-AWSesome Modules — Backward-compatibility shim.
+﻿"""
+AWSome Modules — Backward-compatibility shim.
 
-This file re-exports every public function from the ``awsesome`` package so
-that existing imports like ``from AWSesome_modules import log`` keep working.
+This file re-exports every public function from the ``awsome`` package so
+that existing imports like ``from awsome_modules import log`` keep working.
 
 **New code should import directly from the sub-modules:**
 
-    from awsesome.s3 import s3_exists
-    from awsesome.glue import read_catalog_table
-    from awsesome.athena import run_query
-    from awsesome.utils import parse_date, clean_string
+    from awsome.s3 import s3_exists
+    from awsome.glue import read_catalog_table
+    from awsome.athena import run_query
+    from awsome.utils import parse_date, clean_string
 """
 
 # ── Utilities ─────────────────────────────────────────────────────────────
-from awsesome.utils import (
+from awsome.utils import (
     convert_bytes,
     parse_s3_uri as get_bucket,
     parse_date as try_date,
@@ -22,7 +22,7 @@ from awsesome.utils import (
 )
 
 # ── S3 ────────────────────────────────────────────────────────────────────
-from awsesome.s3 import (
+from awsome.s3 import (
     s3_exists as s3_contains,
     s3_sync as sync_s3_bucket,
     s3_upload,
@@ -37,12 +37,17 @@ from awsesome.s3 import (
     s3_upload_local_files as list_and_upload_files,
 )
 
-# ── Glue ──────────────────────────────────────────────────────────────────
-from awsesome.glue import (
+# ── Glue Catalog ──────────────────────────────────────────────────────────
+from awsome.catalog import (
+    write_dataframe,
     read_catalog_table as get_table,
     register_table as create_update_table,
     get_latest_partition as get_calatog_latest_partition,
     get_last_partition_spark as get_partition,
+)
+
+# ── Glue Jobs ─────────────────────────────────────────────────────────────
+from awsome.glue import (
     list_jobs,
     estimate_job_cost,
     glue_job_audit_report as get_glue_job_audit_report,
@@ -50,24 +55,24 @@ from awsesome.glue import (
 )
 
 # ── Athena ────────────────────────────────────────────────────────────────
-from awsesome.athena import (
+from awsome.athena import (
     run_query as run_athena_query,
     save_query_to_s3 as save_athena_results,
     athena_audit_report as athena_query_audit_report,
 )
 
 # ── Redshift ──────────────────────────────────────────────────────────────
-from awsesome.redshift import copy_from_s3 as copy_redshift
+from awsome.redshift import copy_from_s3 as copy_redshift
 
 # ── Spark utilities ───────────────────────────────────────────────────────
-from awsesome.spark_utils import (
+from awsome.spark_utils import (
     estimate_df_size as estimate_size,
     cdp_to_s3,
     process_s3_files_to_catalog as process_local_files,
 )
 
 # ── Monitoring ────────────────────────────────────────────────────────────
-from awsesome.monitoring import step_functions_report as monitor_state_machines
+from awsome.monitoring import step_functions_report as monitor_state_machines
 
 # ── Quality ───────────────────────────────────────────────────────────────
-from awsesome.quality import run_quality_check
+from awsome.quality import run_quality_check

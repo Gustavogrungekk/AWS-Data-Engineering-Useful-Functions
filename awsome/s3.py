@@ -1,4 +1,4 @@
-"""
+﻿"""
 Amazon S3 helper functions.
 
 Functions:
@@ -27,7 +27,7 @@ import pyarrow.parquet as pq
 import pytz
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 
-from awsesome.utils import convert_bytes, parse_s3_uri
+from awsome.utils import convert_bytes, parse_s3_uri
 
 
 # ---------------------------------------------------------------------------

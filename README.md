@@ -1,14 +1,21 @@
-# AWSesome — AWS Data Engineering Toolkit
+﻿# AWSome — AWS Data Engineering Toolkit
 
 A modular Python library of battle-tested helper functions for **AWS Glue**, **Spark**, **Athena**, **S3**, **Redshift**, and **Step Functions**. Drop it into any Glue job, EMR notebook, or local Spark session and get productive immediately.
 
 ## Package Structure
 
 ```
-awsesome/
+awsome/
 ├── __init__.py        # Package metadata & convenient re-exports
+├── catalog/           #  Glue Data Catalog operations
+│   ├── __init__.py    #   Re-exports: write_dataframe, read_catalog_table, …
+│   ├── _helpers.py    #   Shared Spark/GlueContext helpers
+│   ├── write.py       #   write_dataframe — universal write engine (16-step pipeline)
+│   ├── read.py        #   read_catalog_table
+│   ├── register.py    #   register_table (schema inference from S3)
+│   └── partitions.py  #   get_latest_partition, get_last_partition_spark
+├── glue.py            # Glue job management (list, cost, audit, logging)
 ├── s3.py              # S3 operations (sync, upload, download, list, restore …)
-├── glue.py            # Glue Catalog I/O, table registration, job audit reports
 ├── athena.py          # Athena query execution & result retrieval
 ├── redshift.py        # Redshift COPY from S3
 ├── spark_utils.py     # Spark DataFrame helpers (size estimation, CDP transfer)
@@ -30,29 +37,30 @@ pip install -r requirements.txt
 1. **Zip the package** and upload to S3:
    ```bash
    cd /path/to/this/repo
-   zip -r awsesome.zip awsesome/
-   aws s3 cp awsesome.zip s3://your-bucket/libs/awsesome.zip
+   zip -r awsome.zip awsome/
+   aws s3 cp awsome.zip s3://your-bucket/libs/awsome.zip
    ```
 
 2. **Configure the Glue job**: In the job's **Advanced properties → Libraries → Python library path**, add:
    ```
-   s3://your-bucket/libs/awsesome.zip
+   s3://your-bucket/libs/awsome.zip
    ```
 
 3. **Import in your Glue script**:
    ```python
-   from awsesome.glue import read_catalog_table, log
-   from awsesome.s3 import s3_exists, s3_put_success_flag
+   from awsome.catalog import write_dataframe, read_catalog_table
+   from awsome.glue import log
+   from awsome.s3 import s3_exists, s3_put_success_flag
    ```
 
 ---
 
 ## Quick Reference
 
-### S3 Operations (`awsesome.s3`)
+### S3 Operations (`awsome.s3`)
 
 ```python
-from awsesome.s3 import (
+from awsome.s3 import (
     s3_exists, s3_sync, s3_upload, s3_download,
     s3_list_size, s3_put_success_flag, s3_check_success_flag,
     s3_last_modified, s3_clear_prefix, s3_restore_deleted,
@@ -96,13 +104,21 @@ s3_upload_local_files(
 )
 ```
 
-### Glue Catalog (`awsesome.glue`)
+### Catalog Operations (`awsome.catalog`)
 
 ```python
-from awsesome.glue import (
-    read_catalog_table, register_table,
+from awsome.catalog import (
+    write_dataframe, read_catalog_table, register_table,
     get_latest_partition, get_last_partition_spark,
-    list_jobs, estimate_job_cost, glue_job_audit_report, log,
+)
+
+# Write a Spark DataFrame to S3 + Glue Catalog
+write_dataframe(
+    dataframe=my_df,
+    database="analytics", table="daily_events",
+    path="s3://lake/warehouse/daily_events/",
+    mode="insert_update",
+    partitions=["dt"],
 )
 
 # Read a catalog table into a Spark DataFrame (+ temp view)
@@ -115,6 +131,14 @@ register_table("analytics", "events", "s3://bucket/events/", "parquet")
 # Get the latest partition clause
 clause = get_latest_partition("analytics", "events")
 # → "year=2024 AND month=06"
+```
+
+### Glue Jobs (`awsome.glue`)
+
+```python
+from awsome.glue import (
+    list_jobs, estimate_job_cost, glue_job_audit_report, log,
+)
 
 # List Glue jobs by name pattern
 list_jobs("etl")  # → ['etl-customers', 'etl-orders']
@@ -129,10 +153,10 @@ df = glue_job_audit_report(["etl-orders", "etl-customers"])
 log("Step 3 complete — 1.2M rows written.")
 ```
 
-### Athena (`awsesome.athena`)
+### Athena (`awsome.athena`)
 
 ```python
-from awsesome.athena import (
+from awsome.athena import (
     run_query, fetch_query_results,
     save_query_to_s3, athena_audit_report,
 )
@@ -152,10 +176,10 @@ save_query_to_s3(
 df = athena_audit_report(["primary", "analytics"], hours=48)
 ```
 
-### Redshift (`awsesome.redshift`)
+### Redshift (`awsome.redshift`)
 
 ```python
-from awsesome.redshift import copy_from_s3
+from awsome.redshift import copy_from_s3
 
 copy_from_s3(
     "s3://gold-lake/events/",
@@ -168,10 +192,10 @@ copy_from_s3(
 )
 ```
 
-### Spark Utilities (`awsesome.spark_utils`)
+### Spark Utilities (`awsome.spark_utils`)
 
 ```python
-from awsesome.spark_utils import estimate_df_size, cdp_to_s3
+from awsome.spark_utils import estimate_df_size, cdp_to_s3
 
 # Estimate DataFrame size
 print(estimate_df_size(df))  # '256.7 MB'
@@ -186,10 +210,10 @@ cdp_to_s3(
 )
 ```
 
-### Monitoring (`awsesome.monitoring`)
+### Monitoring (`awsome.monitoring`)
 
 ```python
-from awsesome.monitoring import step_functions_report
+from awsome.monitoring import step_functions_report
 
 df = step_functions_report(
     ["arn:aws:states:us-east-1:123456789012:stateMachine:MyPipeline"],
@@ -197,19 +221,19 @@ df = step_functions_report(
 )
 ```
 
-### Data Quality (`awsesome.quality`)
+### Data Quality (`awsome.quality`)
 
 ```python
-from awsesome.quality import run_quality_check
+from awsome.quality import run_quality_check
 
 df = run_quality_check(["analytics.events", "analytics.users"])
 df[df["record_count"] == 0]  # find empty partitions
 ```
 
-### General Utilities (`awsesome.utils`)
+### General Utilities (`awsome.utils`)
 
 ```python
-from awsesome.utils import (
+from awsome.utils import (
     convert_bytes, parse_s3_uri, parse_date,
     clean_string, business_days,
 )
@@ -225,7 +249,7 @@ business_days("BR", "2024-12-23", "2024-12-31")
 
 ## Backward Compatibility
 
-The legacy `AWSesome_modules.py` file still works. It re-exports everything from the new package so existing `from AWSesome_modules import log` imports continue to work.
+The legacy `awsome_modules.py` file still works. It re-exports everything from the new package so existing `from awsome_modules import log` imports continue to work.
 
 ---
 
