@@ -57,7 +57,6 @@ from awsome.glue import (
 # ── Athena ────────────────────────────────────────────────────────────────
 from awsome.athena import (
     run_query as run_athena_query,
-    save_query_to_s3 as save_athena_results,
     athena_audit_report as athena_query_audit_report,
 )
 

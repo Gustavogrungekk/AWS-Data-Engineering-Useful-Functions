@@ -4,8 +4,11 @@ Amazon Athena query execution and result retrieval.
 Functions:
     run_query            - Execute an Athena query and wait for it to finish
     fetch_query_results  - Retrieve results of a completed Athena query as a DataFrame
-    save_query_to_s3     - Execute an Athena query and write the results to S3 as Parquet
     athena_audit_report  - Build a cost/usage report for recent Athena queries
+
+Note:
+    To run an Athena query and write the result directly to the Glue Catalog,
+    use ``awsome.catalog.write_dataframe(sql=..., mode="new")`` instead.
 """
 
 from __future__ import annotations
@@ -134,72 +137,6 @@ def fetch_query_results(
     return pd.DataFrame(rows, columns=columns)
 
 
-# ---------------------------------------------------------------------------
-# Save to S3 as Parquet
-# ---------------------------------------------------------------------------
-
-def save_query_to_s3(
-    query: str,
-    s3_path: str,
-    *,
-    workgroup: str = "primary",
-    athena_output: Optional[str] = None,
-    write_mode: str = "append",
-    partition_by: Optional[list[str]] = None,
-    catalog_db: Optional[str] = None,
-    catalog_table: Optional[str] = None,
-    region: str = "us-east-1",
-    spark=None,
-) -> str:
-    """Run an Athena query and write the CSV result to S3 as Parquet.
-
-    Optionally registers the result as a table in the Glue Catalog.
-
-    Args:
-        query: SQL query to execute.
-        s3_path: Destination S3 path for Parquet output.
-        workgroup: Athena workgroup.
-        athena_output: S3 location where Athena writes its CSV output.
-            Required so we can read the intermediate result.
-        write_mode: Spark write mode (``"overwrite"`` or ``"append"``).
-        partition_by: Optional list of partition column names.
-        catalog_db: If set (together with *catalog_table*), save as a Glue table.
-        catalog_table: Glue table name.
-        region: AWS region.
-        spark: Existing ``SparkSession``.
-
-    Returns:
-        Status message.
-
-    Example:
-        >>> save_query_to_s3(
-        ...     "SELECT * FROM analytics.events WHERE year='2024'",
-        ...     "s3://bucket/warehouse/events_2024/",
-        ...     athena_output="s3://bucket/athena-results/",
-        ... )
-    """
-    from pyspark.sql import SparkSession
-
-    spark = spark or SparkSession.builder.getOrCreate()
-    qid = run_query(query, workgroup=workgroup, output_location=athena_output, region=region)
-
-    csv_path = f"{athena_output.rstrip('/')}/{qid}.csv"
-    df = spark.read.option("header", "true").csv(csv_path)
-
-    writer = df.write.mode(write_mode)
-    if partition_by:
-        writer = writer.partitionBy(*partition_by)
-
-    if catalog_db and catalog_table:
-        writer.format("parquet").option("path", s3_path).saveAsTable(
-            f"{catalog_db}.{catalog_table}"
-        )
-        # Repair partitions
-        run_query(f"MSCK REPAIR TABLE {catalog_db}.{catalog_table}", workgroup=workgroup, region=region)
-    else:
-        writer.parquet(s3_path)
-
-    return f"Query results saved to {s3_path}"
 
 
 # ---------------------------------------------------------------------------

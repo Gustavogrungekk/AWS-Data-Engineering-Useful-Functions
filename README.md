@@ -156,20 +156,21 @@ log("Step 3 complete — 1.2M rows written.")
 ### Athena (`awsome.athena`)
 
 ```python
-from awsome.athena import (
-    run_query, fetch_query_results,
-    save_query_to_s3, athena_audit_report,
-)
+from awsome.athena import run_query, fetch_query_results, athena_audit_report
 
 # Run a query and get the results as a DataFrame
 qid = run_query("SELECT count(*) FROM analytics.events", database="analytics")
 df = fetch_query_results(qid)
 
-# Run a query and save results as Parquet in S3
-save_query_to_s3(
-    "SELECT * FROM analytics.events WHERE year='2024'",
-    "s3://bucket/warehouse/events_2024/",
+# To write Athena SQL results directly to the Catalog, use write_dataframe:
+from awsome.catalog import write_dataframe
+write_dataframe(
+    sql="SELECT * FROM analytics.events WHERE year='2024'",
+    database="analytics", table="events_2024",
+    path="s3://bucket/warehouse/events_2024/",
+    mode="new",
     athena_output="s3://bucket/athena-results/",
+    athena_database="analytics",
 )
 
 # Audit report: queries, bytes scanned, cost
