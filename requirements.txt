@@ -1,11 +1,18 @@
-pandas
-numpy
-matplotlib
-seaborn
-json
-boto3
-psycopg2
-repartipy
-holidays
-awsglue
-dateutil
+boto3>=1.26
+pandas>=1.5
+numpy>=1.23
+holidays>=0.25
+psycopg2-binary>=2.9
+pyarrow>=12.0
+pytz>=2023.3
+python-dateutil>=2.8
+repartipy>=0.2
+
+# Optional — only needed inside AWS Glue environments:
+# pyspark
+# awsglue
+
+# Optional — only needed for specific functions:
+# matplotlib
+# seaborn
+# openpyxl  (for Excel file support)
